@@ -210,7 +210,7 @@ def _create_bg_delivery_pdf(d):
     bbr=d.get('bankBranch','สาขานราธิวาสราชนครินทร์')
     chd=d.get('companyForHeader','บจก. เอส ซีเอ็ม เทคโนโลจีส์')
     gcat=d.get('guaranteeCategory','contract');ptype=d.get('paymentType','bank_lg')
-    td=d.get('thaiDay','');tm=d.get('thaiMonth','');ty=d.get('thaiYear','')
+    td=d.get('thaiDay','');tm=d.get('thaiMonth','');tyr=d.get('thaiYear','')
     ib=gcat=='bid';ic=gcat=='contract';ii=gcat=='insurance'
 
     # ═══ หน้า 1 LANDSCAPE ═══
@@ -268,7 +268,7 @@ def _create_bg_delivery_pdf(d):
     cy=st-28
     _bg_label(c,m2+10,cy,'วันที่');_bg_field(c,m2+42,cy-3,30,14,td,9)
     _bg_label(c,m2+80,cy,'เดือน');_bg_field(c,m2+110,cy-3,65,14,tm,9)
-    _bg_label(c,m2+183,cy,'พ.ศ.');_bg_field(c,m2+205,cy-3,42,14,ty,9)
+    _bg_label(c,m2+183,cy,'พ.ศ.');_bg_field(c,m2+205,cy-3,42,14,tyr,9)
     cy-=20;st_=sc or cpy;c.setFont(_TF,9);c.setFillColor(_B);c.drawString(m2+10,cy,st_)
     c.setFillColor(_TEAL);c.drawString(m2+10+c.stringWidth(st_,_TF,9)+5,cy,'ได้ส่ง')
     cy-=18;_bg_chk(c,m2+10,cy,ib);c.setFont(_TF,8);c.setFillColor(_B)
