@@ -149,7 +149,7 @@ def generate_bg_delivery():
 # BG Delivery PDF Builder (reportlab) — landscape p1 + portrait p2
 # ════════════════════════════════════════════════════════════
 from reportlab.lib.pagesizes import landscape as _landscape
-from reportlab.lib.colors import HexColor as _HC
+from reportlab.lib.colors import HexColor as _HC, white, black
 
 _BLUE=_HC('#1a3a7a');_TEAL=_HC('#0a7a6e');_PURPLE=_HC('#6a3a9a')
 _GRAY=_HC('#555555');_LGRAY=_HC('#999999');_BORDER=_HC('#bbbbbb')
