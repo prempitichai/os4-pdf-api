@@ -104,7 +104,9 @@ def build_fields(d):
     sub = d.get('submittedInstrument',True)
     if sub: add(44,628,'X',9,True)
     else: add(44,644,'X',9,True); add(230,646,d.get('notSubmittedReason',''),8)
-    add(325,683,d.get('signerName','')); add(320,703,d.get('signerName',''),8); add(330,719,d.get('signerPosition',''))
+    # ลงชื่อช่องแรก → ว่างไว้ (ไม่ใส่ข้อมูล)
+    # ช่อง 2 (ชื่อในวงเล็บ) + ช่อง 3 (ตำแหน่ง) → จุดศูนย์กลางเท่ากัน x=370
+    add(370,703,d.get('signerName',''),8,True); add(370,719,d.get('signerPosition',''),8,True)
     return fields
 
 
