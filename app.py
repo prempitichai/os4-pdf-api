@@ -71,42 +71,18 @@ def build_fields(d):
         except: pass
     rate = d.get('stampRate',''); sur = d.get('surcharge','-'); tot = d.get('totalDuty',dutyAmt)
 
-    # ── Row 1: ข้อมูลจาก payload (เหมือนเดิม) ──
     add(43,540,'1',8,True); add(65,540,clause,8,True); add(85,540,desc,8); add(192,540,'1',8,True)
     add(220,540,val,8); add(280,540,'00',8,True)
     add(314,540,rate,7,True); add(368,540,dutyAmt,7); add(407,540,'00',7,True)
     add(446,540,sur,7); add(485,540,'00',7,True); add(524,540,tot,7); add(564,540,'00',7,True)
-
-    # ── Row 2: คู่ฉบับ (ข้อ 23) — เพิ่มอัตโนมัติเสมอ ──
-    add(43,562,'2',8,True); add(65,562,'23',8,True); add(85,562,'คู่ฉบับ',8); add(192,562,'1',8,True)
-    add(220,562,'5',8); add(280,562,'00',8,True)
-    add(368,562,'5',7); add(407,562,'00',7,True)
-    add(446,562,'-',7); add(485,562,'00',7,True); add(524,562,'5',7); add(564,562,'00',7,True)
-
-    # ── Row รวม: row1 + คู่ฉบับ 5 บาท ──
-    try:
-        duty_num = float(str(dutyAmt).replace(',','')) if dutyAmt else 0
-        val_num = float(str(val).replace(',','')) if val else 0
-        total_duty_num = duty_num + 5
-        total_val_num = val_num + 5
-        total_duty_str = f'{total_duty_num:,.0f}' if total_duty_num == int(total_duty_num) else f'{total_duty_num:,.2f}'
-        total_val_str = f'{total_val_num:,.2f}' if '.' in str(val) else f'{total_val_num:,.0f}'
-        total_tot_str = total_duty_str
-    except:
-        total_duty_str = dutyAmt
-        total_val_str = val
-        total_tot_str = tot
-
-    add(220,608,total_val_str,8); add(280,608,'00',8,True)
-    add(368,608,total_duty_str,7); add(407,608,'00',7,True); add(446,608,sur,7); add(485,608,'00',7,True)
-    add(524,608,total_tot_str,7); add(564,608,'00',7,True)
+    add(220,608,val,8); add(280,608,'00',8,True)
+    add(368,608,dutyAmt,7); add(407,608,'00',7,True); add(446,608,sur,7); add(485,608,'00',7,True)
+    add(524,608,tot,7); add(564,608,'00',7,True)
 
     sub = d.get('submittedInstrument',True)
     if sub: add(44,628,'X',9,True)
     else: add(44,644,'X',9,True); add(230,646,d.get('notSubmittedReason',''),8)
-    # ลงชื่อช่องแรก → ว่างไว้ (ไม่ใส่ข้อมูล)
-    # ช่อง 2 (ชื่อในวงเล็บ) + ช่อง 3 (ตำแหน่ง) → จุดศูนย์กลางเท่ากัน x=370
-    add(370,703,d.get('signerName',''),8,True); add(370,719,d.get('signerPosition',''),8,True)
+    add(325,683,d.get('signerName','')); add(320,703,d.get('signerName',''),8); add(330,719,d.get('signerPosition',''))
     return fields
 
 
@@ -149,6 +125,194 @@ def generate():
         })
     except Exception as e:
         return jsonify({'success':False,'message':str(e)}), 500
+
+@app.route('/generate_bg_delivery', methods=['POST'])
+def generate_bg_delivery():
+    """สร้าง BG Delivery Form PDF — 2 หน้า landscape + portrait"""
+    try:
+        if API_KEY and request.headers.get('X-API-Key','') != API_KEY:
+            return jsonify({'success':False,'message':'Invalid API key'}), 401
+        data = request.get_json()
+        if not data: return jsonify({'success':False,'message':'No JSON body'}), 400
+        pdf_bytes = _create_bg_delivery_pdf(data)
+        fn = data.get('contractNo','BG').replace('/','_').replace(' ','_')
+        return jsonify({
+            'success': True,
+            'pdfBase64': base64.b64encode(pdf_bytes).decode(),
+            'fileName': f"BG_Delivery_{fn}.pdf"
+        })
+    except Exception as e:
+        return jsonify({'success':False,'message':str(e)}), 500
+
+
+# ════════════════════════════════════════════════════════════
+# BG Delivery PDF Builder (reportlab) — landscape p1 + portrait p2
+# ════════════════════════════════════════════════════════════
+from reportlab.lib.pagesizes import landscape as _landscape
+from reportlab.lib.colors import HexColor as _HC
+
+_BLUE=_HC('#1a3a7a');_TEAL=_HC('#0a7a6e');_PURPLE=_HC('#6a3a9a')
+_GRAY=_HC('#555555');_LGRAY=_HC('#999999');_BORDER=_HC('#bbbbbb')
+_FIELD_BG=_HC('#f7f9fc');_FIELD_BD=_HC('#d0d5dd')
+_W=white;_B=black;_TF=THAI_FONT
+
+def _bg_chk(c,x,y,on,sz=9):
+    c.setLineWidth(1)
+    if on:
+        c.setStrokeColor(_BLUE);c.setFillColor(_HC('#e0e8f8'))
+        c.rect(x,y,sz,sz,fill=1,stroke=1);c.setFillColor(_BLUE);c.setFont(_TF,7)
+        c.drawCentredString(x+sz/2,y+1.5,'✓')
+    else:
+        c.setStrokeColor(_BORDER);c.setFillColor(_W);c.rect(x,y,sz,sz,fill=1,stroke=1)
+    c.setFillColor(_B)
+
+def _bg_field(c,x,y,w,h,text='',fs=8):
+    c.setStrokeColor(_FIELD_BD);c.setFillColor(_FIELD_BG);c.setLineWidth(0.5)
+    c.roundRect(x,y,w,h,2,fill=1,stroke=1)
+    if text:
+        c.setFillColor(_B);c.setFont(_TF,fs)
+        t=str(text)
+        while c.stringWidth(t,_TF,fs)>w-6 and len(t)>1: t=t[:-1]
+        c.drawString(x+3,y+(h-fs)/2,t)
+    c.setFillColor(_B)
+
+def _bg_label(c,x,y,text,fs=7.5):
+    c.setFont(_TF,fs);c.setFillColor(_GRAY);c.drawString(x,y,text);c.setFillColor(_B)
+
+def _bg_section(c,x,y,w,text,fs=10):
+    c.setStrokeColor(_BLUE);c.setLineWidth(2);c.line(x,y+2,x,y-12)
+    c.setFont(_TF,fs);c.setFillColor(_BLUE);c.drawString(x+8,y-9,text)
+    c.setStrokeColor(_HC('#dde2ea'));c.setLineWidth(0.5);c.line(x,y-14,x+w,y-14)
+    c.setFillColor(_B);return y-22
+
+def _bg_sign(c,x,y,title,w=155,h=55):
+    c.setStrokeColor(_HC('#c0c8d8'));c.setLineWidth(0.8);c.setDash(4,3)
+    c.roundRect(x,y,w,h,4);c.setDash()
+    c.setFont(_TF,7.5);c.setFillColor(_GRAY);c.drawCentredString(x+w/2,y+h-12,title)
+    c.setStrokeColor(_HC('#b0b8c8'));c.setLineWidth(0.5)
+    c.line(x+15,y+h/2-2,x+w-15,y+h/2-2)
+    c.setFont(_TF,6.5);c.setFillColor(_LGRAY)
+    c.drawCentredString(x+w/2,y+h/2-14,'(                                               )')
+    c.drawCentredString(x+w/2,y+h/2-24,'วันที่ ........./................/...........')
+    c.setFillColor(_B)
+
+def _create_bg_delivery_pdf(d):
+    from reportlab.lib.pagesizes import A4
+    A4W,A4H=A4;LW,LH=_landscape(A4)
+    buf=BytesIO();c=canvas.Canvas(buf)
+    sn=d.get('senderName','');sc=d.get('senderCompany','');sp=d.get('senderPhone','')
+    rn=d.get('receiverName','');rc=d.get('receiverCompany','');rp=d.get('receiverPhone','')
+    cno=d.get('contractNo','');cnm=d.get('contractName','')
+    dt=d.get('docTypeText','หนังสือค้ำประกันสัญญา')
+    bgn=d.get('bgNumber','');isd=d.get('issueDate','');bgv=d.get('bgValue','')
+    bge=d.get('bgExpiry','');cpy=d.get('counterparty','');po=d.get('poNumber','')
+    own=d.get('projectOwner','');bnk=d.get('bankName','ธนาคารกสิกรไทย')
+    bbr=d.get('bankBranch','สาขานราธิวาสราชนครินทร์')
+    chd=d.get('companyForHeader','บจก. เอส ซีเอ็ม เทคโนโลจีส์')
+    gcat=d.get('guaranteeCategory','contract');ptype=d.get('paymentType','bank_lg')
+    td=d.get('thaiDay','');tm=d.get('thaiMonth','');ty=d.get('thaiYear','')
+    ib=gcat=='bid';ic=gcat=='contract';ii=gcat=='insurance'
+
+    # ═══ หน้า 1 LANDSCAPE ═══
+    c.setPageSize(_landscape(A4));pw,ph=LW,LH;mx=35;mr=pw-35
+    c.setFont(_TF,16);c.setFillColor(_BLUE)
+    c.drawCentredString(pw/2,ph-38,'แบบฟอร์มนำส่งหนังสือค้ำประกัน')
+    c.setFont(_TF,9);c.setFillColor(_LGRAY)
+    c.drawCentredString(pw/2,ph-52,'กรมธรรม์ประกันภัย / Bank Guarantee Delivery Form')
+    c.setStrokeColor(_BLUE);c.setLineWidth(1.5);c.line(pw/2-140,ph-58,pw/2+140,ph-58)
+
+    y=_bg_section(c,mx,ph-72,mr-mx,'ส่วนที่ 1 — ผู้นำส่งเอกสาร / ผู้รับเอกสาร')
+    half=(mr-mx)/2-10;lx=mx;rx=mx+half+20;rh=15;g=5;lw=32
+    c.setFont(_TF,8);c.setFillColor(_TEAL);c.drawString(lx+5,y,'▸  ผู้นำส่งเอกสาร')
+    c.setFillColor(_BLUE);c.drawString(rx+5,y,'▸  ผู้รับเอกสาร')
+    for i,(lb,vl,vr) in enumerate([('ชื่อ',sn,rn),('บริษัท',sc,rc),('โทร',sp,rp)]):
+        fy=y-16-i*(rh+g)
+        _bg_label(c,lx+5,fy+3,lb);_bg_field(c,lx+lw+10,fy,half-lw-15,rh,vl,7.5)
+        _bg_label(c,rx+5,fy+3,lb);_bg_field(c,rx+lw+10,fy,half-lw-15,rh,vr,7.5)
+
+    ty=y-16-3*(rh+g)-6;ty=_bg_section(c,mx,ty,mr-mx,'ส่วนที่ 2 — ข้อมูลจัดเก็บเอกสาร')
+    hds=['#','เลขที่สัญญา','ชื่อสัญญา','ประเภทเอกสาร','เลขที่เอกสาร','ลงวันที่','จำนวนเงิน (บาท)','วันครบกำหนด','คู่สัญญา','เลขที่ PO','Project Owner']
+    cw=[22,68,148,58,62,52,68,56,125,58,56];tw=sum(cw);tx=mx;thh=16;tdh=40
+    c.setFillColor(_BLUE);c.rect(tx,ty-thh,tw,thh,fill=1)
+    c.setFillColor(_W);c.setFont(_TF,6);cx_=tx
+    for i,ht in enumerate(hds): c.drawCentredString(cx_+cw[i]/2,ty-thh+4,ht);cx_+=cw[i]
+    c.setStrokeColor(_BORDER);c.setLineWidth(0.4);c.setFillColor(_W)
+    c.rect(tx,ty-thh-tdh,tw,tdh,fill=1,stroke=1)
+    cx_=tx
+    for w in cw[:-1]: cx_+=w;c.line(cx_,ty-thh,cx_,ty-thh-tdh)
+    vs=['1',cno,cnm,dt,bgn,isd,bgv,bge,cpy,po,own]
+    c.setFont(_TF,7);c.setFillColor(_B);cx_=tx
+    for i,v in enumerate(vs):
+        t=str(v or '');cwd=cw[i]-4;ls=[]
+        while t:
+            f=t
+            while c.stringWidth(f,_TF,7)>cwd and len(f)>1:f=f[:-1]
+            ls.append(f);t=t[len(f):]
+            if len(ls)>=4:break
+        for li,ln in enumerate(ls):c.drawString(cx_+2,ty-thh-10-li*8,ln)
+        cx_+=cw[i]
+
+    sy=ty-thh-tdh-6;sy=_bg_section(c,mx,sy,mr-mx,'ส่วนที่ 3 — สำหรับเจ้าหน้าที่รับเอกสาร')
+    _bg_label(c,mx+10,sy,'ข้าพเจ้าตรวจสอบรายละเอียดแล้ว ถูกต้องครบถ้วน',8)
+    sx=pw/2-175;_bg_sign(c,sx,sy-68,'ลงนามผู้นำส่ง');_bg_sign(c,sx+190,sy-68,'ลงนามผู้รับเอกสาร')
+    c.showPage()
+
+    # ═══ หน้า 2 PORTRAIT ═══
+    c.setPageSize(A4);pw2,ph2=A4W,A4H;m2=35;fw=pw2-70;bw=155
+    sh=280;st=ph2-25;sb=st-sh;rg=15;rh2=255;rt=sb-rg;rb=rt-rh2
+
+    # แบบส่ง (เขียว)
+    c.setStrokeColor(_TEAL);c.setLineWidth(2);c.rect(m2,sb,fw,sh)
+    c.setFillColor(_TEAL);c.rect(pw2/2-bw/2,st-8,bw,16,fill=1)
+    c.setFillColor(_W);c.setFont(_TF,10);c.drawCentredString(pw2/2,st-5,'แบบส่งหลักประกัน');c.setFillColor(_B)
+    cy=st-28
+    _bg_label(c,m2+10,cy,'วันที่');_bg_field(c,m2+42,cy-3,30,14,td,9)
+    _bg_label(c,m2+80,cy,'เดือน');_bg_field(c,m2+110,cy-3,65,14,tm,9)
+    _bg_label(c,m2+183,cy,'พ.ศ.');_bg_field(c,m2+205,cy-3,42,14,ty,9)
+    cy-=20;st_=sc or cpy;c.setFont(_TF,9);c.setFillColor(_B);c.drawString(m2+10,cy,st_)
+    c.setFillColor(_TEAL);c.drawString(m2+10+c.stringWidth(st_,_TF,9)+5,cy,'ได้ส่ง')
+    cy-=18;_bg_chk(c,m2+10,cy,ib);c.setFont(_TF,8);c.setFillColor(_B)
+    c.drawString(m2+22,cy+1,'หลักประกันซอง');_bg_chk(c,m2+110,cy,ic);c.drawString(m2+122,cy+1,'หลักประกันสัญญา')
+    _bg_chk(c,m2+230,cy,ii);c.drawString(m2+242,cy+1,'เอกสารประกันภัย');c.setFont(_TF,7.5);c.drawString(m2+325,cy+1,'ของ '+chd)
+    cy-=20;_bg_label(c,m2+10,cy+3,'สำหรับโครงการ');_bg_field(c,m2+85,cy-1,225,15,cnm,7)
+    _bg_label(c,m2+318,cy+3,'เลขที่สัญญา');_bg_field(c,m2+385,cy-1,fw-395,15,cno,7)
+    cy-=18;_bg_chk(c,m2+10,cy,ptype=='cash');c.setFont(_TF,8);c.setFillColor(_B)
+    c.drawString(m2+22,cy+1,'เงินสด');_bg_chk(c,m2+80,cy,ptype=='bond');c.drawString(m2+92,cy+1,'พันธบัตรรัฐบาลไทย')
+    _bg_chk(c,m2+210,cy,ptype=='cheque');c.drawString(m2+222,cy+1,'แคชเชียร์เช็ค')
+    cy-=15;_bg_chk(c,m2+10,cy,ptype=='bank_lg');c.setFillColor(_B)
+    c.drawString(m2+22,cy+1,'หนังสือค้ำประกันของธนาคารภายในประเทศ')
+    _bg_chk(c,m2+270,cy,ptype=='car_insurance');c.drawString(m2+282,cy+1,'กรมธรรม์ประกันภัย CAR & PL')
+    cy-=18;_bg_label(c,m2+10,cy+3,'ชื่อธนาคาร/บริษัท');_bg_field(c,m2+98,cy-1,185,15,bnk,8)
+    _bg_label(c,m2+292,cy+3,'สาขา');_bg_field(c,m2+318,cy-1,fw-328,15,bbr,7)
+    cy-=18;_bg_label(c,m2+10,cy+3,'เลขที่');_bg_field(c,m2+42,cy-1,135,15,bgn,8)
+    _bg_label(c,m2+186,cy+3,'จำนวน');_bg_field(c,m2+218,cy-1,110,15,bgv,8)
+    c.setFont(_TF,6);c.setFillColor(_LGRAY);c.drawString(m2+338,cy+3,'ครบถ้วนถูกต้องเรียบร้อย')
+    _bg_sign(c,pw2/2-78,cy-62,'ลงชื่อผู้ส่งหลักประกัน',155,50)
+
+    # แบบคืน (ม่วง)
+    c.setStrokeColor(_PURPLE);c.setLineWidth(2);c.rect(m2,rb,fw,rh2)
+    c.setFillColor(_PURPLE);c.rect(pw2/2-bw/2,rt-8,bw,16,fill=1)
+    c.setFillColor(_W);c.setFont(_TF,10);c.drawCentredString(pw2/2,rt-5,'แบบคืนหลักประกัน');c.setFillColor(_B)
+    cy2=rt-28;c.setFont(_TF,9);c.drawString(m2+10,cy2,chd)
+    c.setFillColor(_PURPLE);c.drawString(m2+10+c.stringWidth(chd,_TF,9)+5,cy2,'ได้คืน')
+    cy2-=18
+    for lb,cv in [('หลักประกันซอง',ib),('หลักประกันสัญญา',ic),('เอกสารประกันภัย',ii)]:
+        _bg_chk(c,m2+10,cy2,cv);c.setFont(_TF,8);c.setFillColor(_B);c.drawString(m2+22,cy2+1,lb+'  ของ  '+cpy);cy2-=15
+    cy2-=4;_bg_chk(c,m2+10,cy2,ptype=='cash');c.setFont(_TF,8);c.setFillColor(_B)
+    c.drawString(m2+22,cy2+1,'เงินสด');_bg_chk(c,m2+80,cy2,ptype=='bond');c.drawString(m2+92,cy2+1,'พันธบัตรรัฐบาลไทย')
+    _bg_chk(c,m2+210,cy2,ptype=='cheque');c.drawString(m2+222,cy2+1,'แคชเชียร์เช็ค')
+    cy2-=15;_bg_chk(c,m2+10,cy2,ptype=='bank_lg');c.setFillColor(_B)
+    c.drawString(m2+22,cy2+1,'หนังสือค้ำประกันของธนาคารภายในประเทศ')
+    _bg_chk(c,m2+270,cy2,ptype=='car_insurance');c.drawString(m2+282,cy2+1,'กรมธรรม์ประกันภัย CAR & PL')
+    cy2-=18;_bg_label(c,m2+10,cy2+3,'ชื่อธนาคาร/บริษัท');_bg_field(c,m2+98,cy2-1,fw-108,15,bnk,8)
+    cy2-=17;_bg_label(c,m2+10,cy2+3,'สาขา');_bg_field(c,m2+42,cy2-1,fw-52,15,bbr,8)
+    cy2-=17;_bg_label(c,m2+10,cy2+3,'เลขที่');_bg_field(c,m2+42,cy2-1,135,15,bgn,8)
+    _bg_label(c,m2+186,cy2+3,'จำนวน');_bg_field(c,m2+218,cy2-1,110,15,bgv,8)
+    c.setFont(_TF,6);c.setFillColor(_LGRAY);c.drawString(m2+338,cy2+3,'ครบถ้วน')
+    _bg_sign(c,pw2/2-78,cy2-55,'ลงชื่อผู้คืนหลักประกัน',155,45)
+
+    c.save();return buf.getvalue()
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT',8080)))
