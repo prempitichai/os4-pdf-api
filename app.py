@@ -71,13 +71,35 @@ def build_fields(d):
         except: pass
     rate = d.get('stampRate',''); sur = d.get('surcharge','-'); tot = d.get('totalDuty',dutyAmt)
 
+    # ── Row 1: ข้อมูลจาก payload (เหมือนเดิม) ──
     add(43,540,'1',8,True); add(65,540,clause,8,True); add(85,540,desc,8); add(192,540,'1',8,True)
     add(220,540,val,8); add(280,540,'00',8,True)
     add(314,540,rate,7,True); add(368,540,dutyAmt,7); add(407,540,'00',7,True)
     add(446,540,sur,7); add(485,540,'00',7,True); add(524,540,tot,7); add(564,540,'00',7,True)
-    add(220,608,val,8); add(280,608,'00',8,True)
-    add(368,608,dutyAmt,7); add(407,608,'00',7,True); add(446,608,sur,7); add(485,608,'00',7,True)
-    add(524,608,tot,7); add(564,608,'00',7,True)
+
+    # ── Row 2: คู่ฉบับ (ข้อ 23) — เพิ่มอัตโนมัติเสมอ ──
+    add(43,557,'2',8,True); add(65,557,'23',8,True); add(85,557,'คู่ฉบับ',8); add(192,557,'1',8,True)
+    add(220,557,'5',8); add(280,557,'00',8,True)
+    add(368,557,'5',7); add(407,557,'00',7,True)
+    add(446,557,'-',7); add(485,557,'00',7,True); add(524,557,'5',7); add(564,557,'00',7,True)
+
+    # ── Row รวม: row1 + คู่ฉบับ 5 บาท ──
+    try:
+        duty_num = float(str(dutyAmt).replace(',','')) if dutyAmt else 0
+        val_num = float(str(val).replace(',','')) if val else 0
+        total_duty_num = duty_num + 5
+        total_val_num = val_num + 5
+        total_duty_str = f'{total_duty_num:,.0f}' if total_duty_num == int(total_duty_num) else f'{total_duty_num:,.2f}'
+        total_val_str = f'{total_val_num:,.2f}' if '.' in str(val) else f'{total_val_num:,.0f}'
+        total_tot_str = total_duty_str
+    except:
+        total_duty_str = dutyAmt
+        total_val_str = val
+        total_tot_str = tot
+
+    add(220,608,total_val_str,8); add(280,608,'00',8,True)
+    add(368,608,total_duty_str,7); add(407,608,'00',7,True); add(446,608,sur,7); add(485,608,'00',7,True)
+    add(524,608,total_tot_str,7); add(564,608,'00',7,True)
 
     sub = d.get('submittedInstrument',True)
     if sub: add(44,628,'X',9,True)
