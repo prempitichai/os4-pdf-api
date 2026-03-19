@@ -11,6 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from pypdf import PdfReader, PdfWriter
+from generate_lg_pettycash import generate_lg_pdf, generate_pettycash_pdf
 
 app = Flask(__name__)
 
@@ -316,3 +317,67 @@ def _create_bg_delivery_pdf(d):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT',8080)))
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# DEPLOY_2 — copy เข้า app.py บน Railway/Render
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+# ขั้นตอน:
+#   1. วาง import บรรทัดนี้ ที่ด้านบน app.py (ใกล้ import อื่นๆ):
+#
+#      from generate_lg_pettycash import generate_lg_pdf, generate_pettycash_pdf
+#
+#   2. วาง 2 routes ด้านล่างนี้ ใน app.py (หลัง @app.route('/generate_bg_delivery'))
+#
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+# ── Route 1: Request Approve LG ──────────────────────
+
+@app.route('/generate_lg', methods=['POST'])
+def api_generate_lg():
+    try:
+        api_key = request.headers.get('X-API-Key', '')
+        if EXPECTED_API_KEY and api_key != EXPECTED_API_KEY:
+            return jsonify({'success': False, 'message': 'Invalid API Key'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'message': 'No JSON data'}), 400
+
+        pdf_bytes = generate_lg_pdf(data)
+        pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
+
+        items = data.get('items', [{}])
+        proj = (items[0].get('project', '') if items else '').strip()
+        safe = ''.join(c for c in proj[:40] if c.isalnum() or c in '_- ' or ('\u0e00' <= c <= '\u0e7f'))
+        filename = 'Request_Approve_LG_' + (safe.strip() or 'form') + '.pdf'
+
+        return jsonify({'success': True, 'pdfBase64': pdf_b64, 'fileName': filename})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ── Route 2: Petty Cash ─────────────────────────────
+
+@app.route('/generate_pettycash', methods=['POST'])
+def api_generate_pettycash():
+    try:
+        api_key = request.headers.get('X-API-Key', '')
+        if EXPECTED_API_KEY and api_key != EXPECTED_API_KEY:
+            return jsonify({'success': False, 'message': 'Invalid API Key'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'message': 'No JSON data'}), 400
+
+        pdf_bytes = generate_pettycash_pdf(data)
+        pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
+
+        items = data.get('items', [{}])
+        desc = (items[0].get('description', '') if items else '').strip()
+        safe = ''.join(c for c in desc[:40] if c.isalnum() or c in '_- ' or ('\u0e00' <= c <= '\u0e7f'))
+        filename = 'PettyCash_' + (safe.strip() or 'form') + '.pdf'
+
+        return jsonify({'success': True, 'pdfBase64': pdf_b64, 'fileName': filename})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
