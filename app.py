@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
-OS4 PDF API Server — deploy บน Railway
-POST /generate → รับ JSON → return { success, pdfBase64, fileName }
-GET  /health   → health check
+OS4 PDF API Server — deploy บน Render
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Endpoints:
+  POST /generate            → อ.ส.4 stamp duty
+  POST /generate_bg_delivery → BG Delivery Form
+  POST /generate_lg          → Request Approve LG      ★ NEW
+  POST /generate_pettycash   → Petty Cash               ★ NEW
+  GET  /health              → health check
 """
 import os, json, base64, math
 from io import BytesIO
@@ -15,21 +20,34 @@ from generate_lg_pettycash import generate_lg_pdf, generate_pettycash_pdf
 
 app = Flask(__name__)
 
-# Font
+# ============================================================
+# FONT
+# ============================================================
 THAI_FONT = 'FreeSerif'
 for fp in ['/usr/share/fonts/truetype/freefont/FreeSerif.ttf', './fonts/FreeSerif.ttf', '/app/fonts/FreeSerif.ttf']:
     if os.path.exists(fp):
         pdfmetrics.registerFont(TTFont(THAI_FONT, fp)); break
 
-# Template
+# ============================================================
+# CONFIG
+# ============================================================
 TEMPLATE_PATH = os.environ.get('OS4_TEMPLATE', './os4_blank.pdf')
 API_KEY = os.environ.get('OS4_API_KEY', '')
 
-# Exact positions (pixel-scanned)
+def _check_key():
+    """ตรวจ API Key — return error response ถ้าไม่ผ่าน, None ถ้า OK"""
+    if API_KEY and request.headers.get('X-API-Key', '') != API_KEY:
+        return jsonify({'success': False, 'message': 'Invalid API key'}), 401
+    return None
+
+
+# ════════════════════════════════════════════════════════════
+# 1. อ.ส.4 STAMP DUTY
+# ════════════════════════════════════════════════════════════
+
 TIN_C = [145.9,162.6,173.7,184.7,195.8,212.3,223.4,234.5,245.6,256.7,273.5,284.7,301.2]
 BR_C = [352.3,364.3,376.3,388.2,400.3]
 ZIP_C = [364.9,376.9,389.0,401.0,413.1]
-
 
 def build_fields(d):
     fields = []
@@ -111,11 +129,12 @@ def create_pdf(data):
 def health():
     return jsonify({'status':'ok','template_exists':os.path.exists(TEMPLATE_PATH)})
 
+
 @app.route('/generate', methods=['POST'])
 def generate():
     try:
-        if API_KEY and request.headers.get('X-API-Key','') != API_KEY:
-            return jsonify({'success':False,'message':'Invalid API key'}), 401
+        err = _check_key()
+        if err: return err
         data = request.get_json()
         if not data: return jsonify({'success':False,'message':'No JSON body'}), 400
         pdf_bytes = create_pdf(data)
@@ -127,27 +146,9 @@ def generate():
     except Exception as e:
         return jsonify({'success':False,'message':str(e)}), 500
 
-@app.route('/generate_bg_delivery', methods=['POST'])
-def generate_bg_delivery():
-    """สร้าง BG Delivery Form PDF — 2 หน้า landscape + portrait"""
-    try:
-        if API_KEY and request.headers.get('X-API-Key','') != API_KEY:
-            return jsonify({'success':False,'message':'Invalid API key'}), 401
-        data = request.get_json()
-        if not data: return jsonify({'success':False,'message':'No JSON body'}), 400
-        pdf_bytes = _create_bg_delivery_pdf(data)
-        fn = data.get('contractNo','BG').replace('/','_').replace(' ','_')
-        return jsonify({
-            'success': True,
-            'pdfBase64': base64.b64encode(pdf_bytes).decode(),
-            'fileName': f"BG_Delivery_{fn}.pdf"
-        })
-    except Exception as e:
-        return jsonify({'success':False,'message':str(e)}), 500
-
 
 # ════════════════════════════════════════════════════════════
-# BG Delivery PDF Builder (reportlab) — landscape p1 + portrait p2
+# 2. BG DELIVERY FORM
 # ════════════════════════════════════════════════════════════
 from reportlab.lib.pagesizes import landscape as _landscape
 from reportlab.lib.colors import HexColor as _HC, white, black
@@ -262,7 +263,6 @@ def _create_bg_delivery_pdf(d):
     c.setPageSize(A4);pw2,ph2=A4W,A4H;m2=35;fw=pw2-70;bw=155
     sh=280;st=ph2-25;sb=st-sh;rg=15;rh2=255;rt=sb-rg;rb=rt-rh2
 
-    # แบบส่ง (เขียว)
     c.setStrokeColor(_TEAL);c.setLineWidth(2);c.rect(m2,sb,fw,sh)
     c.setFillColor(_TEAL);c.rect(pw2/2-bw/2,st-8,bw,16,fill=1)
     c.setFillColor(_W);c.setFont(_TF,10);c.drawCentredString(pw2/2,st-5,'แบบส่งหลักประกัน');c.setFillColor(_B)
@@ -290,7 +290,6 @@ def _create_bg_delivery_pdf(d):
     c.setFont(_TF,6);c.setFillColor(_LGRAY);c.drawString(m2+338,cy+3,'ครบถ้วนถูกต้องเรียบร้อย')
     _bg_sign(c,pw2/2-78,cy-62,'ลงชื่อผู้ส่งหลักประกัน',155,50)
 
-    # แบบคืน (ม่วง)
     c.setStrokeColor(_PURPLE);c.setLineWidth(2);c.rect(m2,rb,fw,rh2)
     c.setFillColor(_PURPLE);c.rect(pw2/2-bw/2,rt-8,bw,16,fill=1)
     c.setFillColor(_W);c.setFont(_TF,10);c.drawCentredString(pw2/2,rt-5,'แบบคืนหลักประกัน');c.setFillColor(_B)
@@ -315,69 +314,77 @@ def _create_bg_delivery_pdf(d):
     c.save();return buf.getvalue()
 
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT',8080)))
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# DEPLOY_2 — copy เข้า app.py บน Railway/Render
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#
-# ขั้นตอน:
-#   1. วาง import บรรทัดนี้ ที่ด้านบน app.py (ใกล้ import อื่นๆ):
-#
-#      from generate_lg_pettycash import generate_lg_pdf, generate_pettycash_pdf
-#
-#   2. วาง 2 routes ด้านล่างนี้ ใน app.py (หลัง @app.route('/generate_bg_delivery'))
-#
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@app.route('/generate_bg_delivery', methods=['POST'])
+def generate_bg_delivery():
+    try:
+        err = _check_key()
+        if err: return err
+        data = request.get_json()
+        if not data: return jsonify({'success':False,'message':'No JSON body'}), 400
+        pdf_bytes = _create_bg_delivery_pdf(data)
+        fn = data.get('contractNo','BG').replace('/','_').replace(' ','_')
+        return jsonify({
+            'success': True,
+            'pdfBase64': base64.b64encode(pdf_bytes).decode(),
+            'fileName': f"BG_Delivery_{fn}.pdf"
+        })
+    except Exception as e:
+        return jsonify({'success':False,'message':str(e)}), 500
 
 
-# ── Route 1: Request Approve LG ──────────────────────
+# ════════════════════════════════════════════════════════════
+# 3. REQUEST APPROVE LG  ★ NEW
+# ════════════════════════════════════════════════════════════
 
 @app.route('/generate_lg', methods=['POST'])
 def api_generate_lg():
     try:
-        api_key = request.headers.get('X-API-Key', '')
-        if EXPECTED_API_KEY and api_key != EXPECTED_API_KEY:
-            return jsonify({'success': False, 'message': 'Invalid API Key'}), 403
-
+        err = _check_key()
+        if err: return err
         data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'message': 'No JSON data'}), 400
+        if not data: return jsonify({'success':False,'message':'No JSON body'}), 400
 
         pdf_bytes = generate_lg_pdf(data)
         pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
 
         items = data.get('items', [{}])
         proj = (items[0].get('project', '') if items else '').strip()
-        safe = ''.join(c for c in proj[:40] if c.isalnum() or c in '_- ' or ('\u0e00' <= c <= '\u0e7f'))
+        safe = ''.join(ch for ch in proj[:40] if ch.isalnum() or ch in '_- ' or ('\u0e00' <= ch <= '\u0e7f'))
         filename = 'Request_Approve_LG_' + (safe.strip() or 'form') + '.pdf'
 
         return jsonify({'success': True, 'pdfBase64': pdf_b64, 'fileName': filename})
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success':False,'message':str(e)}), 500
 
 
-# ── Route 2: Petty Cash ─────────────────────────────
+# ════════════════════════════════════════════════════════════
+# 4. PETTY CASH  ★ NEW
+# ════════════════════════════════════════════════════════════
 
 @app.route('/generate_pettycash', methods=['POST'])
 def api_generate_pettycash():
     try:
-        api_key = request.headers.get('X-API-Key', '')
-        if EXPECTED_API_KEY and api_key != EXPECTED_API_KEY:
-            return jsonify({'success': False, 'message': 'Invalid API Key'}), 403
-
+        err = _check_key()
+        if err: return err
         data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'message': 'No JSON data'}), 400
+        if not data: return jsonify({'success':False,'message':'No JSON body'}), 400
 
         pdf_bytes = generate_pettycash_pdf(data)
         pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
 
         items = data.get('items', [{}])
         desc = (items[0].get('description', '') if items else '').strip()
-        safe = ''.join(c for c in desc[:40] if c.isalnum() or c in '_- ' or ('\u0e00' <= c <= '\u0e7f'))
+        safe = ''.join(ch for ch in desc[:40] if ch.isalnum() or ch in '_- ' or ('\u0e00' <= ch <= '\u0e7f'))
         filename = 'PettyCash_' + (safe.strip() or 'form') + '.pdf'
 
         return jsonify({'success': True, 'pdfBase64': pdf_b64, 'fileName': filename})
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success':False,'message':str(e)}), 500
+
+
+# ════════════════════════════════════════════════════════════
+# MAIN
+# ════════════════════════════════════════════════════════════
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
