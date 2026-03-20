@@ -51,8 +51,9 @@ def _ensure_fonts():
 
 # ── Template paths ─────────────────────────────────────────────────────
 def _tpl_path(name):
+    """ใช้ template เดียวกันทั้ง 2 ฟอร์ม"""
     base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base, name)
+    return os.path.join(base, 'bg_template.pdf')
 
 # ── Number formatter ───────────────────────────────────────────────────
 def _fmt(val):
