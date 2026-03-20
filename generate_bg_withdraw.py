@@ -134,46 +134,82 @@ def _draw_footer(c, entity):
 
 def _wrap_text(text, font_name, font_size, max_width):
     """
-    ตัดคำ Thai/Eng ให้พอดี max_width (pt)
+    ตัดคำ Thai/Eng ให้พอดี max_width (pt) — Thai-safe
+    ตัดทีละตัวอักษร รองรับ Thai ที่ไม่มี space ระหว่างคำ
     คืน list ของ lines
     """
     from reportlab.pdfbase.pdfmetrics import stringWidth
-    words = text.split(' ')
+    text = str(text or '')
+    if not text:
+        return ['']
     lines = []
-    current = ''
-    for word in words:
-        test = (current + ' ' + word).strip()
+    cur   = ''
+    for ch in text:
+        test = cur + ch
         if stringWidth(test, font_name, font_size) <= max_width:
-            current = test
+            cur = test
         else:
-            if current:
-                lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-    return lines
+            # ถ้ามี space → ตัดที่ space ล่าสุด
+            last_sp = cur.rfind(' ')
+            if last_sp > 0:
+                lines.append(cur[:last_sp])
+                cur = cur[last_sp + 1:] + ch
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = ch
+    if cur:
+        lines.append(cur)
+    return lines or ['']
+
+
+def _draw_justified_line(c, line, x, y, font_name, font_size, max_width):
+    """วาด 1 บรรทัดแบบ justify — กระจาย space ให้เต็มความกว้าง"""
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    words = line.split(' ')
+    if len(words) <= 1:
+        c.setFont(font_name, font_size)
+        c.drawString(x, y, line)
+        return
+    total_w = stringWidth(line.replace(' ', ''), font_name, font_size)
+    gaps    = len(words) - 1
+    space_w = (max_width - total_w) / gaps if gaps > 0 else 0
+    cx = x
+    c.setFont(font_name, font_size)
+    for word in words:
+        c.drawString(cx, y, word)
+        cx += stringWidth(word, font_name, font_size) + space_w
 
 
 def _draw_paragraph(c, text, x, y, font_name, font_size, max_width,
                     line_height=None, indent=0, bold_phrases=None):
     """
-    วาดย่อหน้าข้อความพร้อม word-wrap
-    bold_phrases: list of strings ที่จะ bold (ใช้ highlight เลข BG / มูลค่า)
-    คืน y สุดท้าย (หลังวาดเสร็จ)
+    วาดย่อหน้าข้อความพร้อม word-wrap + justify
+    - ทุกบรรทัดยกเว้นสุดท้าย: justify (ชิดทั้งซ้ายขวา)
+    - บรรทัดสุดท้าย: ชิดซ้าย
+    bold_phrases: list of strings ที่จะ bold
+    คืน y สุดท้าย
     """
     from reportlab.pdfbase.pdfmetrics import stringWidth
     if line_height is None:
-        line_height = font_size * 1.35
+        line_height = font_size * 1.45
 
     lines = _wrap_text(text, font_name, font_size, max_width - indent)
     for i, line in enumerate(lines):
-        draw_x = x + (indent if i == 0 else 0)
+        draw_x  = x + (indent if i == 0 else 0)
+        line_w  = max_width - (indent if i == 0 else 0)
+        is_last = (i == len(lines) - 1)
+
         if bold_phrases:
-            # วาดแบบ mixed bold/regular
+            # มี bold phrase → วาด mixed (ไม่ justify เพื่อความถูกต้องของ bold)
             _draw_mixed_line(c, line, draw_x, y, font_name, FONT_BOLD, font_size, bold_phrases)
-        else:
+        elif is_last or len(line.split(' ')) <= 1:
+            # บรรทัดสุดท้าย / บรรทัดคำเดียว → ชิดซ้าย
             c.setFont(font_name, font_size)
             c.drawString(draw_x, y, line)
+        else:
+            # justify
+            _draw_justified_line(c, line, draw_x, y, font_name, font_size, line_w)
         y -= line_height
     return y
 
