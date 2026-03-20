@@ -184,6 +184,8 @@ def _draw_mixed_line(c, line, x, y, font_reg, font_bold, size, bold_phrases):
     # สร้าง token list: [(text, is_bold), ...]
     tokens = [(line, False)]
     for phrase in bold_phrases:
+        if not phrase:          # ★ skip empty phrase — ป้องกัน empty separator error
+            continue
         new_tokens = []
         for (seg, is_b) in tokens:
             if is_b or phrase not in seg:
