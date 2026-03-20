@@ -927,6 +927,9 @@ def api_generate_messenger():
         return jsonify(_safe_error(e, 'generate_messenger')), 500
 
 
+# register BG Withdraw + POA routes
+register_bg_withdraw_routes(app)
+
 # ════════════════════════════════════════════════════════════
 # MAIN
 # ════════════════════════════════════════════════════════════
