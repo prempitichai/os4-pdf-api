@@ -37,6 +37,7 @@ from pypdf import PdfReader, PdfWriter
 
 from generate_lg_pettycash import generate_lg_pdf, generate_pettycash_pdf
 from generate_messenger import generate_messenger_pdf
+from generate_bg_withdraw import register_bg_withdraw_routes
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
