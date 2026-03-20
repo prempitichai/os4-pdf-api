@@ -381,7 +381,7 @@ def build_fields(d):
         add(192, ry, row['qty'],    8, True)
         add(220, ry, row['val'],    8)
         add(280, ry, '00',          8, True)
-        add(314, ry, row['rate'],   7, True)
+        # add(314, ry, row['rate'],   7, True)  # ★ เว้นว่าง — ไม่แสดงอัตราอากรแสตมป์
         add(368, ry, row['duty'],   7)
         add(407, ry, '00',          7, True)
         add(446, ry, row['sur'],    7)
