@@ -1,4 +1,6 @@
-flask==3.1.0
-gunicorn==23.0.0
-reportlab==4.2.5
-pypdf==5.1.0
+flask
+gunicorn
+reportlab
+pypdf
+Pillow
+python-docx    ← ต้องมีบรรทัดนี้
