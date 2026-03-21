@@ -66,7 +66,7 @@ def _css(fonts):
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
         font-family: 'THSarabunNew', 'TH Sarabun New', serif;
-        font-size: 14pt;
+        font-size: 10pt;
         color: #000;
         background: transparent;
     }}
@@ -76,17 +76,17 @@ def _css(fonts):
         padding: 32mm 20mm 25mm 25mm;
     }}
     .doc-number {{
-        font-size: 14pt;
+        font-size: 10pt;
         margin-bottom: 6mm;
     }}
     .title {{
-        font-size: 16pt;
+        font-size: 12pt;
         font-weight: bold;
         text-align: center;
         margin-bottom: 8mm;
     }}
     .written-at {{
-        font-size: 14pt;
+        font-size: 10pt;
         text-align: right;
         margin-bottom: 6mm;
     }}
@@ -101,7 +101,7 @@ def _css(fonts):
     }}
     .subject-value {{ flex: 1; }}
     .para {{
-        font-size: 14pt;
+        font-size: 10pt;
         text-align: justify;
         text-justify: inter-character;
         text-indent: 12mm;
@@ -112,7 +112,7 @@ def _css(fonts):
         text-align: right;
         margin-top: 8mm;
         margin-bottom: 18mm;
-        font-size: 14pt;
+        font-size: 10pt;
     }}
     .sig-block {{
         text-align: center;
@@ -125,10 +125,10 @@ def _css(fonts):
         width: 70mm;
         margin: 0 auto 2mm auto;
         padding-top: 2mm;
-        font-size: 14pt;
+        font-size: 10pt;
     }}
-    .sig-name {{ font-size: 14pt; margin-bottom: 1mm; }}
-    .sig-pos  {{ font-size: 14pt; }}
+    .sig-name {{ font-size: 10pt; margin-bottom: 1mm; }}
+    .sig-pos  {{ font-size: 10pt; }}
     .clearfix {{ clear: both; }}
 
     /* หนังสือมอบอำนาจ */
@@ -145,7 +145,7 @@ def _css(fonts):
         padding-top: 2mm;
     }}
     .stamp {{
-        font-size: 11pt;
+        font-size: 7pt;
         color: #666;
         margin-top: 6mm;
     }}
