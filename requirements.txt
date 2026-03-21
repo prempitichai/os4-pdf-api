@@ -4,3 +4,4 @@ reportlab
 pypdf
 Pillow
 python-docx
+weasyprint
