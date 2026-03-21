@@ -3,4 +3,4 @@ gunicorn
 reportlab
 pypdf
 Pillow
-python-docx    ← ต้องมีบรรทัดนี้
+python-docx
