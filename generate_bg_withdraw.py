@@ -114,27 +114,52 @@ def _css(fonts):
     }}
     .sig-name    {{ font-size: 10pt; margin-bottom: 1mm; }}
     .sig-pos     {{ font-size: 10pt; }}
-    /* ── ลายเซ็น หนังสือมอบอำนาจ ── */
+    /* ── ลายเซ็น หนังสือมอบอำนาจ — แนวตั้ง ครึ่งขวา v12 ── */
+    .sig-col {{
+        width: 50%;
+        margin-left: auto;
+        margin-top: 8mm;
+    }}
     .sig-right {{
-        width: 95mm;
         margin-bottom: 6mm;
-        text-align: center;
+        width: 100%;
     }}
-    .sig-right .sig-space {{ height: 18mm; }}
-    .sig-right .sig-row {{
+    .sig-right .sig-space {{ height: 10mm; }}
+    .sig-right .sig-row1 {{
         display: flex;
-        align-items: center;
-        gap: 2mm;
-        justify-content: center;
+        align-items: flex-end;
+        width: 100%;
     }}
-    .sig-right .sig-line {{
-        border-bottom: 0.5pt solid #000;
-        width: 55mm;
-        display: inline-block;
+    .sig-right .sig-row1 .prefix {{
+        font-size: 10pt;
+        white-space: nowrap;
         flex-shrink: 0;
+        padding-bottom: 1mm;
+        padding-right: 1mm;
     }}
-    .sig-right .sig-label {{ font-size: 10pt; white-space: nowrap; }}
-    .sig-right .sig-name  {{ text-align: center; font-size: 10pt; margin-top: 1mm; }}
+    .sig-right .sig-row1 .line-cell {{
+        flex: 1;
+        border-bottom: 0.5pt solid #000;
+        align-self: flex-end;
+        min-width: 0;
+    }}
+    .sig-right .sig-row1 .lbl {{
+        font-size: 9pt;
+        white-space: nowrap;
+        flex-shrink: 0;
+        flex-basis: 22mm;
+        width: 22mm;
+        text-align: left;
+        padding-bottom: 1mm;
+        padding-left: 1mm;
+    }}
+    .sig-right .sig-name {{
+        font-size: 10pt;
+        margin-top: 1mm;
+        text-align: center;
+        padding-left: 10mm;
+        padding-right: 22mm;
+    }}
     /* ── อื่นๆ ── */
     .stamp  {{ font-size: 9pt; color: #666; margin-top: 6mm; }}
     .clearfix {{ clear: both; }}
@@ -298,9 +323,10 @@ def generate_bg_poa():
         def sig_html(label, name):
             return f"""<div class="sig-right">
               <div class="sig-space"></div>
-              <div class="sig-row">
-                <span class="sig-line"></span>
-                <span class="sig-label">{label}</span>
+              <div class="sig-row1">
+                <span class="prefix">ลงชื่อ</span>
+                <span class="line-cell"></span>
+                <span class="lbl">{label}</span>
               </div>
               <div class="sig-name">({name})</div>
             </div>"""
@@ -313,13 +339,12 @@ def generate_bg_poa():
   <div class="written-at">ทำที่ {ename}<br>วันที่ {doc_date}</div>
   <p class="para">{body}</p>
   <p class="para">{p2}</p>
-  <div style="float:right;width:95mm">
+  <div class="sig-col">
     {sig_html('ผู้มอบอำนาจ', gr_name)}
     {sig_html('ผู้รับมอบอำนาจ', ge_name)}
     {sig_html('พยาน', w1)}
     {sig_html('พยาน', w2)}
   </div>
-  <div class="clearfix"></div>
   <div class="stamp">ติดอากรแสตมป์ 10 บาท</div>
 </div></body></html>"""
 
