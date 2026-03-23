@@ -138,18 +138,33 @@ def _css(fonts):
     /* หนังสือมอบอำนาจ */
     .sig-right {{
         float: right;
-        width: 90mm;
-        text-align: center;
-        margin-bottom: 5mm;
+        width: 100mm;
+        margin-bottom: 8mm;
     }}
     .sig-right .sig-space {{
         height: 18mm;
     }}
+    .sig-right .sig-row {{
+        display: flex;
+        align-items: flex-end;
+        gap: 3mm;
+        justify-content: flex-end;
+    }}
     .sig-right .sig-line {{
-        border-top: 0.5pt solid #000;
-        width: 70mm;
-        margin: 0 auto 1mm auto;
-        padding-top: 2mm;
+        border-bottom: 0.5pt solid #000;
+        width: 52mm;
+        display: inline-block;
+        margin-bottom: 1mm;
+    }}
+    .sig-right .sig-label {{
+        font-size: 10pt;
+        white-space: nowrap;
+        padding-bottom: 1mm;
+    }}
+    .sig-right .sig-name {{
+        text-align: center;
+        font-size: 10pt;
+        margin-top: 1mm;
     }}
     .stamp {{
         font-size: 7pt;
@@ -303,9 +318,11 @@ def generate_bg_poa():
             return f'''
             <div class="sig-right">
               <div class="sig-space"></div>
-              <div class="sig-line"></div>
-              <div>{label}</div>
-              <div>({name})</div>
+              <div class="sig-row">
+                <span class="sig-line"></span>
+                <span class="sig-label">{label}</span>
+              </div>
+              <div class="sig-name">({name})</div>
             </div>
             <div class="clearfix"></div>'''
 
