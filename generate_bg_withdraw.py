@@ -134,13 +134,13 @@ def _css(fonts):
         font-size: 10pt;
         white-space: nowrap;
         flex-shrink: 0;
-        padding-bottom: 1mm;
+        padding-bottom: 0.5mm;
         padding-right: 1mm;
     }}
     .sig-right .sig-row1 .line-cell {{
         flex: 1;
         border-bottom: 0.5pt solid #000;
-        align-self: flex-end;
+        height: 5mm;
         min-width: 0;
     }}
     .sig-right .sig-row1 .lbl {{
@@ -150,15 +150,15 @@ def _css(fonts):
         flex-basis: 22mm;
         width: 22mm;
         text-align: left;
-        padding-bottom: 1mm;
+        padding-bottom: 0.5mm;
         padding-left: 1mm;
     }}
     .sig-right .sig-name {{
         font-size: 10pt;
         margin-top: 1mm;
         text-align: center;
-        padding-left: 10mm;
-        padding-right: 22mm;
+        padding-left: 12mm;
+        padding-right: 23mm;
     }}
     /* ── อื่นๆ ── */
     .stamp  {{ font-size: 9pt; color: #666; margin-top: 6mm; }}
@@ -334,7 +334,7 @@ def generate_bg_poa():
         html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>{css}</style></head>
 <body><div class="page">
-  <div class="doc-number">({cid})</div>
+  {'<div class="doc-number">(' + cid + ')</div>' if cid else ''}
   <div class="title">หนังสือมอบอำนาจ</div>
   <div class="written-at">ทำที่ {ename}<br>วันที่ {doc_date}</div>
   <p class="para">{body}</p>
