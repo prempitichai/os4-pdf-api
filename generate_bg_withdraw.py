@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: weasyprint-overlay-v1
+# VERSION: weasyprint-overlay-v2-final
 """
 generate_bg_withdraw.py
 =======================
+Render API — สร้าง PDF 2 แบบ overlay บน bg_template.pdf
+  1. POST /generate_bg_withdraw — หนังสือแจ้งขอถอนหลักประกันสัญญา
+  2. POST /generate_bg_poa      — หนังสือมอบอำนาจขอคืนหนังสือค้ำประกัน
+
 Approach:
-  1. สร้าง HTML พร้อม CSS justify
-  2. WeasyPrint แปลง HTML → PDF (Thai justify สวยงาม)
-  3. merge บน bg_template.pdf (header/watermark/footer)
-  4. ส่ง PDF base64 กลับ GAS
+  - WeasyPrint แปลง HTML → PDF (Thai justify สวยงาม)
+  - merge ทับบน bg_template.pdf (header/watermark/footer)
+  - ส่ง PDF base64 กลับ GAS
+
+Dependencies: weasyprint, pypdf
+Font: THSarabunNew (fonts/THSarabunNew.ttf + THSarabunNew-Bold.ttf)
+Template: bg_template.pdf (root folder)
 """
 
 import os, base64, logging
@@ -18,51 +25,48 @@ from pypdf import PdfReader, PdfWriter
 
 logger = logging.getLogger(__name__)
 
-# ── Helpers ────────────────────────────────────────────────────────────
+# ── Number formatter ───────────────────────────────────────────────────
 def _fmt(v):
+    """แปลงตัวเลข → format xxx,xxx.xx"""
     if not v: return ''
     try: return f'{float(str(v).replace(",","")),:,.2f}'
     except: return str(v)
 
+# ── Font loader ────────────────────────────────────────────────────────
 def _font_b64():
     """โหลด THSarabunNew เป็น base64 สำหรับ embed ใน CSS"""
     base = os.path.dirname(os.path.abspath(__file__))
-    paths = [
-        os.path.join(base, 'fonts', 'THSarabunNew.ttf'),
-        os.path.join(base, 'fonts', 'THSarabunNew-Bold.ttf'),
-    ]
     result = {}
-    for p in paths:
+    for fn in ['THSarabunNew.ttf', 'THSarabunNew-Bold.ttf']:
+        p = os.path.join(base, 'fonts', fn)
         if os.path.exists(p):
             with open(p, 'rb') as f:
-                result[os.path.basename(p)] = base64.b64encode(f.read()).decode()
+                result[fn] = base64.b64encode(f.read()).decode()
     return result
 
+# ── CSS ────────────────────────────────────────────────────────────────
 def _css(fonts):
-    """CSS หลัก — TH Sarabun New + A4 + justify"""
-    reg_b64  = fonts.get('THSarabunNew.ttf', '')
-    bold_b64 = fonts.get('THSarabunNew-Bold.ttf', '')
-    font_face = ''
-    if reg_b64:
-        font_face += f'''
+    """CSS หลัก — TH Sarabun New + A4 + justify + signature layout"""
+    reg  = fonts.get('THSarabunNew.ttf', '')
+    bold = fonts.get('THSarabunNew-Bold.ttf', '')
+    ff   = ''
+    if reg:
+        ff += f"""
         @font-face {{
             font-family: 'THSarabunNew';
             font-weight: normal;
-            src: url('data:font/truetype;base64,{reg_b64}') format('truetype');
-        }}'''
-    if bold_b64:
-        font_face += f'''
+            src: url('data:font/truetype;base64,{reg}') format('truetype');
+        }}"""
+    if bold:
+        ff += f"""
         @font-face {{
             font-family: 'THSarabunNew';
             font-weight: bold;
-            src: url('data:font/truetype;base64,{bold_b64}') format('truetype');
-        }}'''
-    return f'''
-    {font_face}
-    @page {{
-        size: A4;
-        margin: 0;
-    }}
+            src: url('data:font/truetype;base64,{bold}') format('truetype');
+        }}"""
+    return f"""
+    {ff}
+    @page {{ size: A4; margin: 0; }}
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
         font-family: 'THSarabunNew', 'TH Sarabun New', serif;
@@ -75,79 +79,48 @@ def _css(fonts):
         min-height: 297mm;
         padding: 32mm 20mm 25mm 25mm;
     }}
-    .doc-number {{
-        font-size: 10pt;
-        margin-bottom: 6mm;
-    }}
-    .title {{
-        font-size: 12pt;
-        font-weight: bold;
-        text-align: center;
-        margin-bottom: 8mm;
-    }}
-    .written-at {{
-        font-size: 10pt;
-        text-align: right;
-        margin-bottom: 6mm;
-    }}
-    .subject-line {{
-        display: flex;
-        margin-bottom: 4mm;
-    }}
-    .subject-label {{
-        font-weight: bold;
-        min-width: 18mm;
-        flex-shrink: 0;
-    }}
+    /* ── หัวหนังสือ ── */
+    .doc-number  {{ font-size: 10pt; margin-bottom: 6mm; }}
+    .title       {{ font-size: 12pt; font-weight: bold; text-align: center; margin-bottom: 8mm; }}
+    .written-at  {{ font-size: 10pt; text-align: right; margin-bottom: 6mm; line-height: 1.6; }}
+    /* ── เรื่อง/เรียน ── */
+    .subject-line  {{ display: flex; margin-bottom: 4mm; }}
+    .subject-label {{ font-weight: bold; min-width: 18mm; flex-shrink: 0; }}
     .subject-value {{ flex: 1; }}
+    /* ── ย่อหน้า ── */
     .para {{
         font-size: 10pt;
         text-align: justify;
-        text-justify: inter-character;
         text-indent: 12mm;
         line-height: 1.6;
         margin-bottom: 4mm;
     }}
+    /* ── ลายเซ็น หนังสือขอถอน ── */
     .closing-area {{
         display: flex;
         flex-direction: column;
         align-items: flex-end;
         margin-top: 8mm;
     }}
-    .closing {{
-        font-size: 10pt;
-        margin-bottom: 4mm;
-        text-align: center;
-        width: 75mm;
-    }}
-    .sig-block {{
-        text-align: center;
-        width: 75mm;
-    }}
-    .sig-space {{
-        height: 20mm;
-    }}
-    .sig-line {{
+    .closing     {{ font-size: 10pt; margin-bottom: 4mm; text-align: center; width: 75mm; }}
+    .sig-block   {{ text-align: center; width: 75mm; }}
+    .sig-space   {{ height: 18mm; }}
+    .sig-line    {{
         border-top: 0.5pt solid #000;
         width: 75mm;
         margin: 0 auto 2mm auto;
         padding-top: 2mm;
         font-size: 10pt;
     }}
-    .sig-name {{ font-size: 10pt; margin-bottom: 1mm; }}
-    .sig-pos  {{ font-size: 10pt; }}
-    .clearfix {{ clear: both; }}
-
-    /* หนังสือมอบอำนาจ */
+    .sig-name    {{ font-size: 10pt; margin-bottom: 1mm; }}
+    .sig-pos     {{ font-size: 10pt; }}
+    /* ── ลายเซ็น หนังสือมอบอำนาจ ── */
     .sig-right {{
-        float: right;
         width: 95mm;
         margin-bottom: 6mm;
         text-align: center;
     }}
-    .sig-right .sig-space {{
-        height: 14mm;
-    }}
+    .sig-right .sig-space {{ height: 18mm; }}
     .sig-right .sig-row {{
         display: flex;
         align-items: center;
@@ -160,68 +133,63 @@ def _css(fonts):
         display: inline-block;
         flex-shrink: 0;
     }}
-    .sig-right .sig-label {{
-        font-size: 10pt;
-        white-space: nowrap;
-    }}
-    .sig-right .sig-name {{
-        text-align: center;
-        font-size: 10pt;
-        margin-top: 1mm;
-    }}
-    .stamp {{
-        font-size: 7pt;
-        color: #666;
-        margin-top: 6mm;
-    }}
-    '''
+    .sig-right .sig-label {{ font-size: 10pt; white-space: nowrap; }}
+    .sig-right .sig-name  {{ text-align: center; font-size: 10pt; margin-top: 1mm; }}
+    /* ── อื่นๆ ── */
+    .stamp  {{ font-size: 9pt; color: #666; margin-top: 6mm; }}
+    .clearfix {{ clear: both; }}
+    """
 
+# ── WeasyPrint HTML→PDF ────────────────────────────────────────────────
 def _html_to_pdf(html):
-    """แปลง HTML → PDF bytes ผ่าน WeasyPrint"""
-    from weasyprint import HTML, CSS
+    from weasyprint import HTML
     return HTML(string=html).write_pdf()
 
-def _merge_on_template(content_pdf_bytes):
-    """merge PDF ที่สร้างจาก HTML ทับบน bg_template.pdf"""
-    base    = os.path.dirname(os.path.abspath(__file__))
-    tpl     = os.path.join(base, 'bg_template.pdf')
-    reader  = PdfReader(tpl)
-    tpl_page = reader.pages[0]
-
-    content_reader = PdfReader(BytesIO(content_pdf_bytes))
-    content_page   = content_reader.pages[0]
-
-    # merge: template เป็น base, content overlay ทับ
-    tpl_page.merge_page(content_page)
-
+# ── Merge ทับ template ─────────────────────────────────────────────────
+def _merge_on_template(content_bytes):
+    """overlay content PDF บน bg_template.pdf"""
+    base     = os.path.dirname(os.path.abspath(__file__))
+    tpl_path = os.path.join(base, 'bg_template.pdf')
+    reader   = PdfReader(tpl_path)
+    page     = reader.pages[0]
+    page.merge_page(PdfReader(BytesIO(content_bytes)).pages[0])
     writer = PdfWriter()
-    writer.add_page(tpl_page)
+    writer.add_page(page)
     out = BytesIO()
     writer.write(out)
     return out.getvalue()
 
 # ══════════════════════════════════════════════════════════════════════
-# FORM 1: หนังสือขอถอนหลักประกัน
+# FORM 1 — หนังสือแจ้งขอถอนหลักประกันสัญญา
 # ══════════════════════════════════════════════════════════════════════
 def generate_bg_withdraw():
+    """
+    POST /generate_bg_withdraw
+    JSON fields:
+      contractId, contractName, signedDate, company
+      guaranteeNumber, guaranteeIssueDate, guaranteeValue
+      signerName, signerPosition, docNumber, docDate
+      entity: { name, address }
+    """
     try:
-        data   = request.get_json(force=True) or {}
-        cid    = str(data.get('contractId','') or '')
-        cname  = str(data.get('contractName','') or '')
-        cdate  = str(data.get('signedDate','') or '')
-        co     = str(data.get('company','') or '')
-        bgn    = str(data.get('guaranteeNumber','') or '')
-        bgd    = str(data.get('guaranteeIssueDate','') or '')
-        bgv    = _fmt(data.get('guaranteeValue',''))
-        signer = str(data.get('signerName','') or '')
-        spos   = str(data.get('signerPosition','Corporate Lawyers') or 'Corporate Lawyers')
-        docnum = str(data.get('docNumber','') or cid)
-        entity = data.get('entity') or {}
-        ename  = entity.get('name','บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด')
-        eshort = 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'
+        data     = request.get_json(force=True) or {}
+        cid      = str(data.get('contractId','')    or '')
+        cname    = str(data.get('contractName','')  or '')
+        cdate    = str(data.get('signedDate','')    or '')
+        co       = str(data.get('company','')       or '')
+        bgn      = str(data.get('guaranteeNumber','') or '')
+        bgd      = str(data.get('guaranteeIssueDate','') or '')
+        bgv      = _fmt(data.get('guaranteeValue',''))
+        signer   = str(data.get('signerName','')    or '')
+        spos     = str(data.get('signerPosition','Corporate Lawyers') or 'Corporate Lawyers')
+        docnum   = str(data.get('docNumber','')     or cid)
+        doc_date = str(data.get('docDate','')       or '')
+        entity   = data.get('entity') or {}
+        ename    = entity.get('name', 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด')
+        eshort   = 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'
 
-        fonts  = _font_b64()
-        css    = _css(fonts)
+        fonts = _font_b64()
+        css   = _css(fonts)
 
         p1 = (f'ตามที่{eshort} ได้ทำสัญญา{cname} '
               f'ฉบับเลขที่ {cid} ลงวันที่ {cdate} กับ {co} นั้น')
@@ -231,9 +199,8 @@ def generate_bg_withdraw():
         p3 = ('ทางบริษัทฯ หวังเป็นอย่างยิ่งว่าจะได้รับความกรุณาจากท่าน '
               'และขอบคุณล่วงหน้ามา ณ ที่นี้')
 
-        html = f'''<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>{css}</style></head>
+        html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>{css}</style></head>
 <body><div class="page">
   <div class="doc-number">เลขที่ {docnum}</div>
   <div class="title">หนังสือแจ้งขอถอนหลักประกันสัญญา</div>
@@ -259,49 +226,58 @@ def generate_bg_withdraw():
     </div>
   </div>
   <div class="clearfix"></div>
-</div></body></html>'''
+</div></body></html>"""
 
-        content_pdf = _html_to_pdf(html)
-        final_pdf   = _merge_on_template(content_pdf)
-
+        final = _merge_on_template(_html_to_pdf(html))
         return jsonify({
             'success':   True,
-            'pdfBase64': base64.b64encode(final_pdf).decode(),
+            'pdfBase64': base64.b64encode(final).decode(),
             'fileName':  f'หนังสือขอถอนหลักประกัน_{cid.replace("/","-")}.pdf'
         })
     except Exception as e:
-        logger.error(f'bg_withdraw: {e}')
-        return jsonify({'success':False,'message':str(e)}), 500
+        logger.error(f'bg_withdraw error: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 # ══════════════════════════════════════════════════════════════════════
-# FORM 2: หนังสือมอบอำนาจ
+# FORM 2 — หนังสือมอบอำนาจขอคืนหนังสือค้ำประกัน
 # ══════════════════════════════════════════════════════════════════════
 def generate_bg_poa():
+    """
+    POST /generate_bg_poa
+    JSON fields:
+      contractId, guaranteeNumber, guaranteeValue, company, docDate
+      entity: { name, address }
+      grantor: { name, idCard }
+      grantee: { name, idCard, address }
+      witnesses: [{ name }, { name }]
+    """
     try:
-        data     = request.get_json(force=True) or {}
-        cid      = str(data.get('contractId','') or '')
-        bgn      = str(data.get('guaranteeNumber','') or '')
-        bgv      = _fmt(data.get('guaranteeValue',''))
-        co       = str(data.get('company','') or '')
-        doc_date = str(data.get('docDate','') or '')
-        entity   = data.get('entity') or {}
-        grantor  = data.get('grantor') or {}
-        grantee  = data.get('grantee') or {}
-        witnesses= data.get('witnesses') or [{},{}]
-        while len(witnesses) < 2: witnesses.append({})
+        data      = request.get_json(force=True) or {}
+        cid       = str(data.get('contractId','')       or '')
+        bgn       = str(data.get('guaranteeNumber','')  or '')
+        bgv       = _fmt(data.get('guaranteeValue',''))
+        co        = str(data.get('company','')          or '')
+        doc_date  = str(data.get('docDate','')          or '')
+        entity    = data.get('entity')   or {}
+        grantor   = data.get('grantor')  or {}
+        grantee   = data.get('grantee')  or {}
+        witnesses = data.get('witnesses') or [{}, {}]
+        while len(witnesses) < 2:
+            witnesses.append({})
 
-        ename  = entity.get('name','บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด')
-        eshort = 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'
-        eaddr  = entity.get('address',
-            'ตั้งอยู่เลขที่ 92/54-55 อาคารสาธรธานี 2 ชั้น 19 ถนนสาทรเหนือ แขวงสีลม เขตบางรัก กรุงเทพมหานคร')
-        gr_name = str(grantor.get('name','นายบัณฑิต หมั้นทรัพย์') or '')
-        gr_id   = str(grantor.get('idCard','3101201187013') or '')
-        ge_name = str(grantee.get('name','') or '')
-        ge_id   = str(grantee.get('idCard','') or '')
-        ge_addr = str(grantee.get('address','') or '')
-        w1      = str(witnesses[0].get('name','นายปิติชัย พัฒนกิจกุล') or '')
-        w2      = str(witnesses[1].get('name','นางสาวสิริกาญจนา จันทร์อ่อน') or '')
+        ename   = entity.get('name', 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด')
+        eshort  = 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'
+        eaddr   = entity.get('address',
+            'ตั้งอยู่เลขที่ 92/54-55 อาคารสาธรธานี 2 ชั้น 19 ถนนสาทรเหนือ '
+            'แขวงสีลม เขตบางรัก กรุงเทพมหานคร')
+        gr_name = str(grantor.get('name',   'นายบัณฑิต หมั้นทรัพย์') or '')
+        gr_id   = str(grantor.get('idCard', '3101201187013')           or '')
+        ge_name = str(grantee.get('name',   '')   or '')
+        ge_id   = str(grantee.get('idCard', '')   or '')
+        ge_addr = str(grantee.get('address','')   or '')
+        w1      = str(witnesses[0].get('name', 'นายปิติชัย พัฒนกิจกุล')        or '')
+        w2      = str(witnesses[1].get('name', 'นางสาวสิริกาญจนา จันทร์อ่อน') or '')
 
         fonts = _font_b64()
         css   = _css(fonts)
@@ -320,19 +296,17 @@ def generate_bg_poa():
               'พร้อมทั้งแนบสำเนาบัตรประจำตัวประชาชนของข้าพเจ้าและผู้รับมอบอำนาจมานี้ด้วย')
 
         def sig_html(label, name):
-            return f'''
-            <div class="sig-right">
+            return f"""<div class="sig-right">
               <div class="sig-space"></div>
               <div class="sig-row">
                 <span class="sig-line"></span>
                 <span class="sig-label">{label}</span>
               </div>
               <div class="sig-name">({name})</div>
-            </div>'''
+            </div>"""
 
-        html = f'''<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>{css}</style></head>
+        html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>{css}</style></head>
 <body><div class="page">
   <div class="doc-number">({cid})</div>
   <div class="title">หนังสือมอบอำนาจ</div>
@@ -345,25 +319,27 @@ def generate_bg_poa():
     {sig_html('พยาน', w1)}
     {sig_html('พยาน', w2)}
   </div>
-  <div style="clear:both"></div>
+  <div class="clearfix"></div>
   <div class="stamp">ติดอากรแสตมป์ 10 บาท</div>
-</div></body></html>'''
+</div></body></html>"""
 
-        content_pdf = _html_to_pdf(html)
-        final_pdf   = _merge_on_template(content_pdf)
-
+        final = _merge_on_template(_html_to_pdf(html))
         return jsonify({
             'success':   True,
-            'pdfBase64': base64.b64encode(final_pdf).decode(),
+            'pdfBase64': base64.b64encode(final).decode(),
             'fileName':  f'หนังสือมอบอำนาจ_{cid.replace("/","-")}.pdf'
         })
     except Exception as e:
-        logger.error(f'bg_poa: {e}')
-        return jsonify({'success':False,'message':str(e)}), 500
+        logger.error(f'bg_poa error: {e}')
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
+# ══════════════════════════════════════════════════════════════════════
+# Registration
+# ══════════════════════════════════════════════════════════════════════
 def register_bg_withdraw_routes(app):
-    app.add_url_rule('/generate_bg_withdraw','generate_bg_withdraw',
+    """เรียกจาก app.py: register_bg_withdraw_routes(app)"""
+    app.add_url_rule('/generate_bg_withdraw', 'generate_bg_withdraw',
                      generate_bg_withdraw, methods=['POST'])
-    app.add_url_rule('/generate_bg_poa','generate_bg_poa',
+    app.add_url_rule('/generate_bg_poa', 'generate_bg_poa',
                      generate_bg_poa, methods=['POST'])
