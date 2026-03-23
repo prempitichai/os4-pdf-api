@@ -108,25 +108,28 @@ def _css(fonts):
         line-height: 1.6;
         margin-bottom: 4mm;
     }}
-    .closing {{
-        text-align: right;
+    .closing-area {{
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
         margin-top: 8mm;
-        margin-bottom: 8mm;
+    }}
+    .closing {{
         font-size: 10pt;
+        margin-bottom: 4mm;
+        text-align: center;
+        width: 75mm;
     }}
     .sig-block {{
         text-align: center;
-        float: right;
-        width: 80mm;
-        margin-right: 0mm;
-        margin-top: 4mm;
+        width: 75mm;
     }}
     .sig-space {{
         height: 20mm;
     }}
     .sig-line {{
         border-top: 0.5pt solid #000;
-        width: 70mm;
+        width: 75mm;
         margin: 0 auto 2mm auto;
         padding-top: 2mm;
         font-size: 10pt;
@@ -138,28 +141,28 @@ def _css(fonts):
     /* หนังสือมอบอำนาจ */
     .sig-right {{
         float: right;
-        width: 100mm;
-        margin-bottom: 8mm;
+        width: 95mm;
+        margin-bottom: 6mm;
+        text-align: center;
     }}
     .sig-right .sig-space {{
-        height: 18mm;
+        height: 14mm;
     }}
     .sig-right .sig-row {{
         display: flex;
-        align-items: flex-end;
-        gap: 3mm;
-        justify-content: flex-end;
+        align-items: center;
+        gap: 2mm;
+        justify-content: center;
     }}
     .sig-right .sig-line {{
         border-bottom: 0.5pt solid #000;
-        width: 52mm;
+        width: 55mm;
         display: inline-block;
-        margin-bottom: 1mm;
+        flex-shrink: 0;
     }}
     .sig-right .sig-label {{
         font-size: 10pt;
         white-space: nowrap;
-        padding-bottom: 1mm;
     }}
     .sig-right .sig-name {{
         text-align: center;
@@ -234,7 +237,7 @@ def generate_bg_withdraw():
 <body><div class="page">
   <div class="doc-number">เลขที่ {docnum}</div>
   <div class="title">หนังสือแจ้งขอถอนหลักประกันสัญญา</div>
-  <div class="written-at">เขียนที่ {ename}</div>
+  <div class="written-at">เขียนที่ {ename}<br>วันที่ {doc_date}</div>
   <div class="subject-line">
     <span class="subject-label">เรื่อง</span>
     <span class="subject-value">ขอถอนหลักประกันสัญญา</span>
@@ -246,12 +249,14 @@ def generate_bg_withdraw():
   <p class="para">{p1}</p>
   <p class="para">{p2}</p>
   <p class="para">{p3}</p>
-  <div class="closing">ขอแสดงความนับถือ</div>
-  <div class="sig-block">
-    <div class="sig-space"></div>
-    <div class="sig-line"></div>
-    <div class="sig-name">({signer})</div>
-    <div class="sig-pos">{spos}</div>
+  <div class="closing-area">
+    <div class="closing">ขอแสดงความนับถือ</div>
+    <div class="sig-block">
+      <div class="sig-space"></div>
+      <div class="sig-line"></div>
+      <div class="sig-name">({signer})</div>
+      <div class="sig-pos">{spos}</div>
+    </div>
   </div>
   <div class="clearfix"></div>
 </div></body></html>'''
@@ -323,8 +328,7 @@ def generate_bg_poa():
                 <span class="sig-label">{label}</span>
               </div>
               <div class="sig-name">({name})</div>
-            </div>
-            <div class="clearfix"></div>'''
+            </div>'''
 
         html = f'''<!DOCTYPE html>
 <html><head><meta charset="utf-8">
@@ -335,10 +339,13 @@ def generate_bg_poa():
   <div class="written-at">ทำที่ {ename}<br>วันที่ {doc_date}</div>
   <p class="para">{body}</p>
   <p class="para">{p2}</p>
-  {sig_html('ผู้มอบอำนาจ', gr_name)}
-  {sig_html('ผู้รับมอบอำนาจ', ge_name)}
-  {sig_html('พยาน', w1)}
-  {sig_html('พยาน', w2)}
+  <div style="float:right;width:95mm">
+    {sig_html('ผู้มอบอำนาจ', gr_name)}
+    {sig_html('ผู้รับมอบอำนาจ', ge_name)}
+    {sig_html('พยาน', w1)}
+    {sig_html('พยาน', w2)}
+  </div>
+  <div style="clear:both"></div>
   <div class="stamp">ติดอากรแสตมป์ 10 บาท</div>
 </div></body></html>'''
 
