@@ -142,6 +142,9 @@ def _css(fonts):
         text-align: center;
         margin-bottom: 5mm;
     }}
+    .sig-right .sig-space {{
+        height: 18mm;
+    }}
     .sig-right .sig-line {{
         border-top: 0.5pt solid #000;
         width: 70mm;
@@ -299,6 +302,7 @@ def generate_bg_poa():
         def sig_html(label, name):
             return f'''
             <div class="sig-right">
+              <div class="sig-space"></div>
               <div class="sig-line"></div>
               <div>{label}</div>
               <div>({name})</div>
