@@ -111,7 +111,7 @@ def _css(fonts):
     .closing {{
         text-align: right;
         margin-top: 8mm;
-        margin-bottom: 18mm;
+        margin-bottom: 8mm;
         font-size: 10pt;
     }}
     .sig-block {{
@@ -119,6 +119,10 @@ def _css(fonts):
         float: right;
         width: 80mm;
         margin-right: 0mm;
+        margin-top: 4mm;
+    }}
+    .sig-space {{
+        height: 20mm;
     }}
     .sig-line {{
         border-top: 0.5pt solid #000;
@@ -226,6 +230,7 @@ def generate_bg_withdraw():
   <p class="para">{p3}</p>
   <div class="closing">ขอแสดงความนับถือ</div>
   <div class="sig-block">
+    <div class="sig-space"></div>
     <div class="sig-line"></div>
     <div class="sig-name">({signer})</div>
     <div class="sig-pos">{spos}</div>
