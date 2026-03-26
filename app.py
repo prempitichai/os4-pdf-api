@@ -493,6 +493,21 @@ _FIELD_BG = _HC('#f7f9fc'); _FIELD_BD = _HC('#d0d5dd')
 _W = white; _B = black; _TF = THAI_FONT
 
 
+def _draw_checkmark_bg(c, x, y, sz, color):
+    """
+    [FIX-CHECKMARK] วาด ✓ ด้วย drawLines แทน Unicode character
+    ใช้ใน BG form เพื่อรองรับฟอนต์ที่ไม่มี glyph U+2713 (✓)
+    """
+    c.setStrokeColor(color)
+    c.setLineWidth(1.2)
+    p1x = x + sz * 0.15;  p1y = y + sz * 0.48
+    p2x = x + sz * 0.38;  p2y = y + sz * 0.22
+    p3x = x + sz * 0.85;  p3y = y + sz * 0.72
+    c.line(p1x, p1y, p2x, p2y)
+    c.line(p2x, p2y, p3x, p3y)
+    c.setLineWidth(1.0)
+
+
 def _bg_chk(c, x, y, on, sz=9):
     """วาด checkbox สำหรับ BG form"""
     c.setLineWidth(1)
@@ -500,9 +515,8 @@ def _bg_chk(c, x, y, on, sz=9):
         c.setStrokeColor(_BLUE)
         c.setFillColor(_HC('#e0e8f8'))
         c.rect(x, y, sz, sz, fill=1, stroke=1)
-        c.setFillColor(_BLUE)
-        c.setFont(_TF, 7)
-        c.drawCentredString(x + sz / 2, y + 1.5, '✓')
+        # [FIX-CHECKMARK] วาด ✓ ด้วย lines แทน Unicode
+        _draw_checkmark_bg(c, x, y, sz, _W)
     else:
         c.setStrokeColor(_BORDER)
         c.setFillColor(_W)
