@@ -10,6 +10,7 @@ OS4 PDF API Server — deploy บน Render / Railway
   4. Error message แยก debug/production
   5. Template path validate ตอน startup
   6. Font size +2pt ทุกจุด (กลับไปขนาดเดิมก่อน v3)
+★ v5 — ชื่อซ้ำ + กึ่งกลาง
 
 Endpoints:
   POST /generate             → อ.ส.4 stamp duty
@@ -421,10 +422,27 @@ def build_fields(d):
         add(230, 646, d.get('notSubmittedReason', ''), 8)
 
     # ── ลายเซ็นผู้มอบอำนาจ ──
-    add(325, 683, d.get('signerName', ''))
-    add(320, 703, d.get('signerName', ''),     8)
-    add(330, 719, d.get('signerPosition', ''))
-
+    # [FIX-SIGNER v5]:
+    #   Line 1 (y=683): "ลงชื่อ.....ผู้เสียอากร"
+    #     → เส้นประเปล่า ไม่วางชื่อ (template มีเส้นประอยู่แล้ว)
+    #   Line 2 (y=703): "(.....นายสรวิชญ์ มงคล.....)"
+    #     → ชื่อกึ่งกลาง x=387.5
+    #   Line 3 (y=719): "ตำแหน่ง.....กรรมการ....."
+    #     → ตำแหน่งกึ่งกลาง x=387.5
+    _sx = 387.5  # กึ่งกลางระหว่าง '(' ≈ x=285 และ ')' ≈ x=490
+    if d.get('signerName'):
+        fields.append({
+            'x': _sx, 'y_top': 703,
+            'text': str(d['signerName']),
+            'fs': 8, 'centered': True
+        })
+    if d.get('signerPosition'):
+        fields.append({
+            'x': _sx, 'y_top': 719,
+            'text': str(d['signerPosition']),
+            'fs': 8, 'centered': True
+        })
+ 
     return fields
 
 
