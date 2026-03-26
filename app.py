@@ -3,14 +3,16 @@
 """
 OS4 PDF API Server — deploy บน Render / Railway
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-★ v4 — แก้ไข:
+★ v6 — แก้ไข:
   1. Font registration guard (ป้องกัน register ซ้ำ)
   2. Input validation ทุก endpoint (items type check)
   3. API Key ใช้ hmac.compare_digest (ป้องกัน timing attack)
   4. Error message แยก debug/production
   5. Template path validate ตอน startup
   6. Font size +2pt ทุกจุด (กลับไปขนาดเดิมก่อน v3)
-★ v5 — ชื่อซ้ำ + กึ่งกลาง
+  7. [NEW v6] _fmt_val แยก บาท | สต. (ไม่แสดงทศนิยมรวม)
+  8. [NEW v6] _fmt_cent() ฟังก์ชันใหม่ดึง สตางค์ part
+  9. [NEW v6] Signature: ลบชื่อ line1, ขยับขึ้น 10pt, กึ่งกลาง
 
 Endpoints:
   POST /generate             → อ.ส.4 stamp duty
@@ -50,7 +52,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ============================================================
-# FONT — THSarabunNew (★ แก้ไข: guard ป้องกัน register ซ้ำ)
+# FONT — THSarabunNew (guard ป้องกัน register ซ้ำ)
 # ============================================================
 THAI_FONT      = 'THSarabunNew'
 THAI_FONT_BOLD = 'THSarabunNew-Bold'
@@ -62,7 +64,6 @@ _FONT_SEARCH = [
 ]
 
 def _find_font(fn):
-    """ค้นหาไฟล์ฟอนต์จากหลาย path"""
     for d in _FONT_SEARCH:
         p = os.path.join(d, fn)
         if os.path.isfile(p):
@@ -91,11 +92,10 @@ def _register_fonts_once():
             else:
                 logger.warning(f"ไม่พบฟอนต์ '{fn}' ใน: {_FONT_SEARCH}")
 
-# ลงทะเบียนตอน module load
 _register_fonts_once()
 
 # ============================================================
-# DEFAULT COMPANY INFO (SCM Technologies — fallback ถ้า GAS ไม่ส่งมา)
+# DEFAULT COMPANY INFO
 # ============================================================
 _SCM_DEFAULT = {
     'companyName':   'บจก. เอส ซีเอ็ม เอส เทคโนโลจีส์',
@@ -107,7 +107,6 @@ _SCM_DEFAULT = {
 }
 
 def _co(d, key):
-    """ดึงค่า company info — ใช้ default ถ้าไม่ส่งมา"""
     v = d.get(key, '')
     return str(v).strip() if v and str(v).strip() else _SCM_DEFAULT.get(key, '')
 
@@ -118,10 +117,8 @@ TEMPLATE_PATH = os.environ.get('OS4_TEMPLATE', './os4_blank.pdf')
 API_KEY       = os.environ.get('OS4_API_KEY', '')
 DEBUG_MODE    = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
 
-# ★ แก้ไข #5: ตรวจสอบ template ตอน startup — fail fast แทนที่จะ crash ตอน generate
 if not os.path.exists(TEMPLATE_PATH):
     logger.error(f"Template ไม่พบ: {TEMPLATE_PATH} — กรุณาตั้งค่า OS4_TEMPLATE")
-    # ไม่ raise ตรงนี้เพื่อให้ health endpoint ยังทำงานได้ แต่ /generate จะ return error
     _TEMPLATE_MISSING = True
 else:
     _TEMPLATE_MISSING = False
@@ -134,7 +131,7 @@ def _check_key():
     ป้องกัน timing attack — ใช้เวลาเท่ากันไม่ว่า key จะถูกหรือผิด
     """
     if not API_KEY:
-        return None  # ไม่ได้ตั้งค่า key → เปิดให้ทุกคนใช้ (สำหรับ dev)
+        return None
     incoming = request.headers.get('X-API-Key', '')
     if not hmac.compare_digest(incoming.encode('utf-8'), API_KEY.encode('utf-8')):
         logger.warning(f"API key ไม่ถูกต้อง จาก IP: {request.remote_addr}")
@@ -168,14 +165,10 @@ def _validate_list_field(data, field, min_len=0):
 
 # ════════════════════════════════════════════════════════════
 # 1. อ.ส.4 STAMP DUTY
-# ★ font sizes +2pt จาก v3: default fs=7→9, fs=6→8, fs=5→7
 # ════════════════════════════════════════════════════════════
 
-# พิกัดกล่อง TIN (เลขประจำตัวผู้เสียภาษี)
 TIN_C = [145.9, 162.6, 173.7, 184.7, 195.8, 212.3, 223.4, 234.5, 245.6, 256.7, 273.5, 284.7, 301.2]
-# พิกัดกล่อง Branch Code (5 หลัก)
 BR_C  = [352.3, 364.3, 376.3, 388.2, 400.3]
-# พิกัดกล่อง Zip Code (5 หลัก)
 ZIP_C = [364.9, 376.9, 389.0, 401.0, 413.1]
 
 
@@ -258,52 +251,52 @@ def build_fields(d):
     add(140, 315, d.get('startDate', ''))
     add(150, 330, d.get('endDate', ''))
 
-    # ── ตาราง stamp duty (รองรับหลาย items) ──
-    # ─────────────────────────────────────────────────────────────
-    # โครงสร้าง items[] ที่รับได้ (ส่งมาจาก GAS):
-    #   items: [
-    #     {
-    #       "seq":        1,               # ลำดับที่ (optional — auto-fill ถ้าไม่ส่ง)
-    #       "clause":     "4",             # ข้อที่ในบัญชีอัตราอากร
-    #       "desc":       "จ้างทำของ",     # ลักษณะตราสาร
-    #       "qty":        1,               # จำนวนตราสาร (ฉบับ)
-    #       "value":      5401869.16,      # มูลค่าตราสาร (บาท)
-    #       "rate":       "สัญญาจ้างทำของ", # อัตราอากรแสตมป์ (text label)
-    #       "duty":       5402,            # ค่าอากรแสตมป์ (บาท) — ถ้าไม่ส่งจะคำนวณ ceil(value/1000)
-    #       "surcharge":  "-",             # เงินเพิ่มอากร (บาท หรือ "-")
-    #       "total":      5402             # รวมเงิน — ถ้าไม่ส่งจะใช้ duty
-    #     },
-    #     { "seq": 2, "clause": "23", "desc": "คู่ฉบับ", "qty": 1,
-    #       "value": 5, "rate": "", "duty": 5, "surcharge": "-", "total": 5 }
-    #   ]
-    #
-    # Backward-compatible: ถ้าไม่มี items[] จะใช้ field เดิม (single-row mode)
-    # ─────────────────────────────────────────────────────────────
-
+    # ── ตาราง stamp duty ──
     # พิกัด y_top ของแต่ละ row ในตาราง (วัดจาก template จริง)
-    ROW_Y    = [540, 558, 576, 594]  # สูงสุด 4 rows
-    TOTAL_Y  = 608                   # บรรทัดรวม (grand total)
-    ROW_STEP = 18                    # ระยะห่างระหว่าง row (pt)
+    ROW_Y   = [540, 558, 576, 594]  # สูงสุด 4 rows
+    TOTAL_Y = 608                   # บรรทัดรวม (grand total)
+    ROW_STEP = 18                   # ระยะห่างระหว่าง row (pt)
 
     def _pf(v):
-        """parse float อย่างปลอดภัย"""
         try:
             return float(str(v or '0').replace(',', ''))
         except (ValueError, TypeError):
             return 0.0
 
+    # [FIX v6] _fmt_val: แสดงเฉพาะ บาท part (ตัดทศนิยมออก)
+    # ทุกสัญญาใช้ logic เดิม: '5401869.16' → '5,401,869' / '1000' → '1,000'
     def _fmt_val(v):
-        """format มูลค่า: comma-separated ไม่มีทศนิยม ถ้าเป็น integer"""
+        """
+        บาท part เท่านั้น — แยกทศนิยมไปแสดงใน _fmt_cent()
+        ตัวอย่าง: '5401869.16' → '5,401,869'
+        """
         try:
             n = _pf(v)
-            if n == int(n):
-                return f'{int(n):,}'
-            return f'{n:,.2f}'
+            if n <= 0:
+                return ''
+            return f'{int(n):,}'
         except Exception:
             return str(v or '')
 
+    # [FIX v6 NEW] _fmt_cent: ดึง สตางค์ part
+    # ตัวอย่าง: '5401869.16' → '16' / '5' → '00' / '5.50' → '50'
+    def _fmt_cent(v):
+        """
+        สตางค์ part จากมูลค่า
+        '5401869.16' → '16'   (ทศนิยม 2 หลัก)
+        '5'          → '00'   (ไม่มีทศนิยม)
+        '0' / ''     → ''     (ว่าง)
+        """
+        try:
+            n = _pf(v)
+            if n <= 0:
+                return ''
+            frac = round((n - int(n)) * 100)
+            return f'{frac:02d}'
+        except Exception:
+            return '00'
+
     def _fmt_duty(v):
-        """format ค่าอากร: comma-separated ไม่มีทศนิยม"""
         try:
             n = _pf(v)
             return f'{int(n):,}' if n > 0 else ''
@@ -311,23 +304,32 @@ def build_fields(d):
             return str(v or '')
 
     def _auto_duty(value_str):
-        """คำนวณค่าอากรอัตโนมัติ: ceil(value / 1000)"""
         try:
             return math.ceil(_pf(value_str) / 1000)
         except Exception:
             return 0
 
     # ── สร้าง row list ──
+    # ─────────────────────────────────────────────────────────────
+    # โครงสร้าง items[] ที่รับได้ (ส่งมาจาก GAS):
+    #   items: [
+    #     { "seq":1, "clause":"4", "desc":"จ้างทำของ", "qty":1,
+    #       "value":5401869.16, "rate":"1/1,000", "duty":5402,
+    #       "surcharge":"-", "total":5402 },
+    #     { "seq":2, "clause":"23b", "desc":"คู่ฉบับ", "qty":1,
+    #       "value":5, "rate":"", "duty":5, "surcharge":"-", "total":5 }
+    #   ]
+    # ★ Backward-compatible: ถ้าไม่มี items[] จะใช้ field เดิม (single-row mode)
+    # ─────────────────────────────────────────────────────────────
     raw_items = d.get('items')
 
     if isinstance(raw_items, list) and raw_items:
         # ★ Multi-row mode: รับ items[] array
         row_list = []
-        for i, it in enumerate(raw_items[:4]):  # จำกัด 4 rows ตาม template
+        for i, it in enumerate(raw_items[:4]):
             val_raw  = it.get('value', '')
             duty_raw = it.get('duty', '')
 
-            # คำนวณ duty อัตโนมัติถ้าไม่ส่งมา
             if not duty_raw and val_raw:
                 duty_calc = _auto_duty(val_raw)
                 duty_raw  = duty_calc
@@ -340,14 +342,13 @@ def build_fields(d):
                 'clause': str(it.get('clause', '')),
                 'desc':   str(it.get('desc', '')),
                 'qty':    str(it.get('qty', '1')),
-                'val':    _fmt_val(val_raw),
+                'val':    str(val_raw),           # เก็บ raw value ไว้ใช้กับ _fmt_val/_fmt_cent
                 'rate':   str(it.get('rate', '')),
                 'duty':   _fmt_duty(duty_raw),
                 'sur':    str(sur_raw) if sur_raw else '-',
                 'tot':    _fmt_duty(tot_raw),
             })
     else:
-        # ★ Backward-compatible: single-row mode (โครงสร้างเดิม)
         desc_single = (
             'จ้างทำของ'     if ct == 'hire'  else
             'เช่าทรัพย์สิน' if ct == 'lease' else
@@ -367,7 +368,7 @@ def build_fields(d):
             'clause': clause_s,
             'desc':   desc_single,
             'qty':    '1',
-            'val':    _fmt_val(val_s),
+            'val':    val_s,              # raw value
             'rate':   rate_s,
             'duty':   _fmt_duty(duty_s),
             'sur':    sur_s,
@@ -377,24 +378,24 @@ def build_fields(d):
     # ── วาด rows ──
     for ri, row in enumerate(row_list):
         ry = ROW_Y[ri]
-        add(43,  ry, row['seq'],    8, True)
-        add(65,  ry, row['clause'], 8, True)
-        add(85,  ry, row['desc'],   8)
-        add(192, ry, row['qty'],    8, True)
-        add(220, ry, row['val'],    8)
-        add(280, ry, '00',          8, True)
-        # add(314, ry, row['rate'],   7, True)  # ★ เว้นว่าง — ไม่แสดงอัตราอากรแสตมป์
-        add(368, ry, row['duty'],   7)
-        add(407, ry, '00',          7, True)
-        add(446, ry, row['sur'],    7)
-        add(485, ry, '00',          7, True)
-        add(524, ry, row['tot'],    7)
-        add(564, ry, '00',          7, True)
+        add(43,  ry, row['seq'],                 8, True)
+        add(65,  ry, row['clause'],              8, True)
+        add(85,  ry, row['desc'],                8)
+        add(192, ry, row['qty'],                 8, True)
+        # [FIX v6] แยก บาท | สต. จากมูลค่าจริง
+        add(220, ry, _fmt_val(row['val']),       8)
+        add(280, ry, _fmt_cent(row['val']),      8, True)
+        # add(314, ry, row['rate'], 7, True)     # อัตราอากร — เว้นว่าง
+        add(368, ry, row['duty'],                7)
+        add(407, ry, '00',                       7, True)
+        add(446, ry, row['sur'],                 7)
+        add(485, ry, '00',                       7, True)
+        add(524, ry, row['tot'],                 7)
+        add(564, ry, '00',                       7, True)
 
     # ── Grand Total (บรรทัดรวม) ──
     # กฎการรวม:
     #   - มูลค่าตราสาร: แสดงเฉพาะ row แรก ไม่รวมข้ามประเภท
-    #     (คู่ฉบับ/ใบมอบอำนาจมีมูลค่าแยก ไม่ควรบวกกัน)
     #   - ค่าอากรแสตมป์: รวมทุก row
     #   - เงินเพิ่มอากร: รวมทุก row (ถ้าทุก row เป็น "-" แสดง "-")
     #   - รวมเงิน: รวมทุก row
@@ -404,13 +405,14 @@ def build_fields(d):
     total_sur       = sum(total_sur_nums) if total_sur_nums else 0
     total_tot       = sum(_pf(r['tot'])  for r in row_list)
 
-    add(220, TOTAL_Y, first_val,                                  8)       # มูลค่า: row แรกเท่านั้น
-    add(280, TOTAL_Y, '00',                                       8, True)
-    add(368, TOTAL_Y, _fmt_duty(total_duty),                      7)       # ค่าอากร: รวมทุก row
+    # [FIX v6] แยก บาท | สต. สำหรับ Grand Total ด้วย
+    add(220, TOTAL_Y, _fmt_val(first_val),                        8)
+    add(280, TOTAL_Y, _fmt_cent(first_val),                       8, True)
+    add(368, TOTAL_Y, _fmt_duty(total_duty),                      7)
     add(407, TOTAL_Y, '00',                                       7, True)
-    add(446, TOTAL_Y, _fmt_duty(total_sur) if total_sur else '-', 7)       # เงินเพิ่ม: รวมทุก row
+    add(446, TOTAL_Y, _fmt_duty(total_sur) if total_sur else '-', 7)
     add(485, TOTAL_Y, '00',                                       7, True)
-    add(524, TOTAL_Y, _fmt_duty(total_tot),                       7)       # รวมเงิน: รวมทุก row
+    add(524, TOTAL_Y, _fmt_duty(total_tot),                       7)
     add(564, TOTAL_Y, '00',                                       7, True)
 
     # ── การยื่นตราสาร ──
@@ -422,33 +424,29 @@ def build_fields(d):
         add(230, 646, d.get('notSubmittedReason', ''), 8)
 
     # ── ลายเซ็นผู้มอบอำนาจ ──
-    # [FIX-SIGNER v5]:
-    #   Line 1 (y=683): "ลงชื่อ.....ผู้เสียอากร"
-    #     → เส้นประเปล่า ไม่วางชื่อ (template มีเส้นประอยู่แล้ว)
-    #   Line 2 (y=703): "(.....นายสรวิชญ์ มงคล.....)"
-    #     → ชื่อกึ่งกลาง x=387.5
-    #   Line 3 (y=719): "ตำแหน่ง.....กรรมการ....."
-    #     → ตำแหน่งกึ่งกลาง x=387.5
-    _sx = 387.5  # กึ่งกลางระหว่าง '(' ≈ x=285 และ ')' ≈ x=490
+    # [FIX-SIGNER v6]:
+    #   Line 1 (y=683): ลงชื่อ.........ผู้เสียอากร  ← เส้นประเปล่า ไม่วางชื่อ
+    #   Line 2 (y=693): (.....ชื่อ.....)              ← กึ่งกลาง (ขยับขึ้นจาก 703→693)
+    #   Line 3 (y=709): ตำแหน่ง.........              ← กึ่งกลาง (ขยับขึ้นจาก 719→709)
+    _sx = 387.5   # กึ่งกลางระหว่าง ( ≈ x=285 และ ) ≈ x=490
     if d.get('signerName'):
         fields.append({
-            'x': _sx, 'y_top': 703,
+            'x': _sx, 'y_top': 693,
             'text': str(d['signerName']),
             'fs': 8, 'centered': True
         })
     if d.get('signerPosition'):
         fields.append({
-            'x': _sx, 'y_top': 719,
+            'x': _sx, 'y_top': 709,
             'text': str(d['signerPosition']),
             'fs': 8, 'centered': True
         })
- 
+
     return fields
 
 
 def create_pdf(data):
     """สร้าง PDF อ.ส.4 โดย overlay ข้อมูลบน template"""
-    # ★ แก้ไข #5: ตรวจสอบ template ก่อนเปิด
     if _TEMPLATE_MISSING:
         raise FileNotFoundError(f"Template ไม่พบ: {TEMPLATE_PATH}")
 
@@ -485,7 +483,6 @@ def create_pdf(data):
 
 # ════════════════════════════════════════════════════════════
 # 2. BG DELIVERY FORM
-# ★ font sizes +2pt ทุกจุด
 # ════════════════════════════════════════════════════════════
 from reportlab.lib.pagesizes import landscape as _landscape
 from reportlab.lib.colors import HexColor as _HC, white, black
@@ -504,7 +501,7 @@ def _bg_chk(c, x, y, on, sz=9):
         c.setFillColor(_HC('#e0e8f8'))
         c.rect(x, y, sz, sz, fill=1, stroke=1)
         c.setFillColor(_BLUE)
-        c.setFont(_TF, 7)  # ★ 5→7
+        c.setFont(_TF, 7)
         c.drawCentredString(x + sz / 2, y + 1.5, '✓')
     else:
         c.setStrokeColor(_BORDER)
@@ -528,7 +525,6 @@ def _bg_field(c, x, y, w, h, text='', fs=8):
         t = str(text)
         max_w = w - 6
         if c.stringWidth(t, _TF, fs) > max_w:
-            # ★ แก้ไข: ตัดพร้อม ellipsis แทน silent cut
             while len(t) > 1 and c.stringWidth(t + '…', _TF, fs) > max_w:
                 t = t[:-1]
             t = t + '…'
@@ -566,13 +562,13 @@ def _bg_sign(c, x, y, title, w=155, h=55):
     c.setDash(4, 3)
     c.roundRect(x, y, w, h, 4)
     c.setDash()
-    c.setFont(_TF, 7.5)   # ★ 5.5→7.5
+    c.setFont(_TF, 7.5)
     c.setFillColor(_GRAY)
     c.drawCentredString(x + w / 2, y + h - 12, title)
     c.setStrokeColor(_HC('#b0b8c8'))
     c.setLineWidth(0.5)
     c.line(x + 15, y + h / 2 - 2, x + w - 15, y + h / 2 - 2)
-    c.setFont(_TF, 6.5)   # ★ 4.5→6.5
+    c.setFont(_TF, 6.5)
     c.setFillColor(_LGRAY)
     c.drawCentredString(x + w / 2, y + h / 2 - 14, '(                                               )')
     c.drawCentredString(x + w / 2, y + h / 2 - 24, 'วันที่ ........./................/...........')
@@ -607,29 +603,29 @@ def _create_bg_delivery_pdf(d):
     pw, ph = LW, LH
     mx = 35; mr = pw - 35
 
-    # Header
-    c.setFont(_TF, 16)   # ★ 14→16
+    c.setFont(_TF, 16)
     c.setFillColor(_BLUE)
     c.drawCentredString(pw / 2, ph - 38, 'แบบฟอร์มนำส่งหนังสือค้ำประกัน')
-    c.setFont(_TF, 9)    # ★ 7→9
+    c.setFont(_TF, 9)
     c.setFillColor(_LGRAY)
     c.drawCentredString(pw / 2, ph - 52, 'กรมธรรม์ประกันภัย / Bank Guarantee Delivery Form')
     c.setStrokeColor(_BLUE); c.setLineWidth(1.5)
     c.line(pw / 2 - 140, ph - 58, pw / 2 + 140, ph - 58)
 
+    # Header
     y = _bg_section(c, mx, ph - 72, mr - mx, 'ส่วนที่ 1 — ผู้นำส่งเอกสาร / ผู้รับเอกสาร')
     half = (mr - mx) / 2 - 10; lx = mx; rx = mx + half + 20; rh = 15; g = 5; lw = 32
 
-    c.setFont(_TF, 8)    # ★ 6→8
+    c.setFont(_TF, 8)
     c.setFillColor(_TEAL);  c.drawString(lx + 5, y, '▸  ผู้นำส่งเอกสาร')
     c.setFillColor(_BLUE);  c.drawString(rx + 5, y, '▸  ผู้รับเอกสาร')
 
     for i, (lb, vl, vr) in enumerate([('ชื่อ', sn, rn), ('บริษัท', sc, rc), ('โทร', sp, rp)]):
         fy = y - 16 - i * (rh + g)
         _bg_label(c, lx + 5, fy + 3, lb)
-        _bg_field(c, lx + lw + 10, fy, half - lw - 15, rh, vl, 7.5)  # ★ 5.5→7.5
+        _bg_field(c, lx + lw + 10, fy, half - lw - 15, rh, vl, 7.5)
         _bg_label(c, rx + 5, fy + 3, lb)
-        _bg_field(c, rx + lw + 10, fy, half - lw - 15, rh, vr, 7.5)  # ★ 5.5→7.5
+        _bg_field(c, rx + lw + 10, fy, half - lw - 15, rh, vr, 7.5)
 
     ty = y - 16 - 3 * (rh + g) - 6
     ty = _bg_section(c, mx, ty, mr - mx, 'ส่วนที่ 2 — ข้อมูลจัดเก็บเอกสาร')
@@ -641,7 +637,7 @@ def _create_bg_delivery_pdf(d):
     tw  = sum(cw_tbl); tx_tbl = mx; thh = 16; tdh = 40
 
     c.setFillColor(_BLUE); c.rect(tx_tbl, ty - thh, tw, thh, fill=1)
-    c.setFillColor(_W); c.setFont(_TF, 6)    # ★ 4→6
+    c.setFillColor(_W); c.setFont(_TF, 6)
     cx_ = tx_tbl
     for i, ht in enumerate(hds):
         c.drawCentredString(cx_ + cw_tbl[i] / 2, ty - thh + 4, ht)
@@ -653,8 +649,9 @@ def _create_bg_delivery_pdf(d):
     for w in cw_tbl[:-1]:
         cx_ += w; c.line(cx_, ty - thh, cx_, ty - thh - tdh)
 
+    # ── วาดข้อมูลใน table cells ──
     vs = ['1', cno, cnm, dt, bgn, isd, bgv, bge, cpy, po, own]
-    c.setFont(_TF, 7); c.setFillColor(_B)    # ★ 5→7
+    c.setFont(_TF, 7); c.setFillColor(_B)
     cx_ = tx_tbl
     for i, v in enumerate(vs):
         t = str(v or ''); cwd = cw_tbl[i] - 4; ls = []
@@ -668,54 +665,60 @@ def _create_bg_delivery_pdf(d):
             c.drawString(cx_ + 2, ty - thh - 10 - li * 8, ln)
         cx_ += cw_tbl[i]
 
+    # ── ส่วนที่ 3 สำหรับเจ้าหน้าที่รับเอกสาร ──
     sy = ty - thh - tdh - 6
     sy = _bg_section(c, mx, sy, mr - mx, 'ส่วนที่ 3 — สำหรับเจ้าหน้าที่รับเอกสาร')
-    _bg_label(c, mx + 10, sy, 'ข้าพเจ้าตรวจสอบรายละเอียดแล้ว ถูกต้องครบถ้วน', 8)  # ★ 6→8
+    _bg_label(c, mx + 10, sy, 'ข้าพเจ้าตรวจสอบรายละเอียดแล้ว ถูกต้องครบถ้วน', 8)
     sx = pw / 2 - 175
     _bg_sign(c, sx, sy - 68, 'ลงนามผู้นำส่ง')
     _bg_sign(c, sx + 190, sy - 68, 'ลงนามผู้รับเอกสาร')
     c.showPage()
 
     # ════ หน้า 2 PORTRAIT ════
+    from reportlab.lib.pagesizes import A4
     c.setPageSize(A4)
     pw2, ph2 = A4W, A4H; m2 = 35; fw = pw2 - 70; bw = 155
     sh = 280; st = ph2 - 25; sb = st - sh; rg = 15; rh2 = 255; rt = sb - rg; rb = rt - rh2
 
+    # ── ส่วน 'แบบส่งหลักประกัน' ──
     c.setStrokeColor(_TEAL);  c.setLineWidth(2); c.rect(m2, sb, fw, sh)
     c.setFillColor(_TEAL); c.rect(pw2 / 2 - bw / 2, st - 8, bw, 16, fill=1)
-    c.setFillColor(_W); c.setFont(_TF, 10); c.drawCentredString(pw2 / 2, st - 5, 'แบบส่งหลักประกัน')  # ★ 8→10
+    c.setFillColor(_W); c.setFont(_TF, 10); c.drawCentredString(pw2 / 2, st - 5, 'แบบส่งหลักประกัน')
     c.setFillColor(_B)
 
+    # ── วันที่ ──
     cy = st - 28
     _bg_label(c, m2 + 10, cy, 'วันที่')
-    _bg_field(c, m2 + 42, cy - 3, 30, 14, td, 9)     # ★ 7→9
+    _bg_field(c, m2 + 42, cy - 3, 30, 14, td, 9)
     _bg_label(c, m2 + 80, cy, 'เดือน')
-    _bg_field(c, m2 + 110, cy - 3, 65, 14, tm, 9)    # ★ 7→9
+    _bg_field(c, m2 + 110, cy - 3, 65, 14, tm, 9)
     _bg_label(c, m2 + 183, cy, 'พ.ศ.')
-    _bg_field(c, m2 + 205, cy - 3, 42, 14, tyr, 9)   # ★ 7→9
+    _bg_field(c, m2 + 205, cy - 3, 42, 14, tyr, 9)
 
     cy -= 20
     st_ = sc or cpy
-    c.setFont(_TF, 9); c.setFillColor(_B); c.drawString(m2 + 10, cy, st_)    # ★ 7→9
+    c.setFont(_TF, 9); c.setFillColor(_B); c.drawString(m2 + 10, cy, st_)
     c.setFillColor(_TEAL); c.drawString(m2 + 10 + c.stringWidth(st_, _TF, 9) + 5, cy, 'ได้ส่ง')
 
+    # ── ประเภทหลักประกัน ──
     cy -= 18
     _bg_chk(c, m2 + 10, cy, ib)
-    c.setFont(_TF, 8); c.setFillColor(_B)    # ★ 6→8
+    c.setFont(_TF, 8); c.setFillColor(_B)
     c.drawString(m2 + 22, cy + 1, 'หลักประกันซอง')
     _bg_chk(c, m2 + 110, cy, ic); c.drawString(m2 + 122, cy + 1, 'หลักประกันสัญญา')
     _bg_chk(c, m2 + 230, cy, ii); c.drawString(m2 + 242, cy + 1, 'เอกสารประกันภัย')
-    c.setFont(_TF, 7.5); c.drawString(m2 + 325, cy + 1, 'ของ ' + chd)    # ★ 5.5→7.5
+    c.setFont(_TF, 7.5); c.drawString(m2 + 325, cy + 1, 'ของ ' + chd)
 
     cy -= 20
     _bg_label(c, m2 + 10, cy + 3, 'สำหรับโครงการ')
-    _bg_field(c, m2 + 85, cy - 1, 225, 15, cnm, 7)   # ★ 5→7
+    _bg_field(c, m2 + 85, cy - 1, 225, 15, cnm, 7)
     _bg_label(c, m2 + 318, cy + 3, 'เลขที่สัญญา')
-    _bg_field(c, m2 + 385, cy - 1, fw - 395, 15, cno, 7)  # ★ 5→7
+    _bg_field(c, m2 + 385, cy - 1, fw - 395, 15, cno, 7)
 
+    # ── ประเภทการชำระ ──
     cy -= 18
     _bg_chk(c, m2 + 10, cy, ptype == 'cash')
-    c.setFont(_TF, 8); c.setFillColor(_B)    # ★ 6→8
+    c.setFont(_TF, 8); c.setFillColor(_B)
     c.drawString(m2 + 22, cy + 1, 'เงินสด')
     _bg_chk(c, m2 + 80, cy, ptype == 'bond'); c.drawString(m2 + 92, cy + 1, 'พันธบัตรรัฐบาลไทย')
     _bg_chk(c, m2 + 210, cy, ptype == 'cheque'); c.drawString(m2 + 222, cy + 1, 'แคชเชียร์เช็ค')
@@ -726,41 +729,44 @@ def _create_bg_delivery_pdf(d):
     _bg_chk(c, m2 + 270, cy, ptype == 'car_insurance')
     c.drawString(m2 + 282, cy + 1, 'กรมธรรม์ประกันภัย CAR & PL')
 
+    # ── ธนาคาร / เลขที่ / จำนวน ──
     cy -= 18
     _bg_label(c, m2 + 10, cy + 3, 'ชื่อธนาคาร/บริษัท')
-    _bg_field(c, m2 + 98, cy - 1, 185, 15, bnk, 8)   # ★ 6→8
+    _bg_field(c, m2 + 98, cy - 1, 185, 15, bnk, 8)
     _bg_label(c, m2 + 292, cy + 3, 'สาขา')
-    _bg_field(c, m2 + 318, cy - 1, fw - 328, 15, bbr, 7)  # ★ 5→7
+    _bg_field(c, m2 + 318, cy - 1, fw - 328, 15, bbr, 7)
 
     cy -= 18
     _bg_label(c, m2 + 10, cy + 3, 'เลขที่')
-    _bg_field(c, m2 + 42, cy - 1, 135, 15, bgn, 8)   # ★ 6→8
+    _bg_field(c, m2 + 42, cy - 1, 135, 15, bgn, 8)
     _bg_label(c, m2 + 186, cy + 3, 'จำนวน')
-    _bg_field(c, m2 + 218, cy - 1, 110, 15, bgv, 8)  # ★ 6→8
-    c.setFont(_TF, 6); c.setFillColor(_LGRAY)         # ★ 4→6
+    _bg_field(c, m2 + 218, cy - 1, 110, 15, bgv, 8)
+    c.setFont(_TF, 6); c.setFillColor(_LGRAY)
     c.drawString(m2 + 338, cy + 3, 'ครบถ้วนถูกต้องเรียบร้อย')
     _bg_sign(c, pw2 / 2 - 78, cy - 62, 'ลงชื่อผู้ส่งหลักประกัน', 155, 50)
 
-    # ── ส่วน "แบบคืนหลักประกัน" ──
+    # ── ส่วน 'แบบคืนหลักประกัน' ──
     c.setStrokeColor(_PURPLE); c.setLineWidth(2); c.rect(m2, rb, fw, rh2)
     c.setFillColor(_PURPLE); c.rect(pw2 / 2 - bw / 2, rt - 8, bw, 16, fill=1)
-    c.setFillColor(_W); c.setFont(_TF, 10); c.drawCentredString(pw2 / 2, rt - 5, 'แบบคืนหลักประกัน')  # ★ 8→10
+    c.setFillColor(_W); c.setFont(_TF, 10); c.drawCentredString(pw2 / 2, rt - 5, 'แบบคืนหลักประกัน')
     c.setFillColor(_B)
 
     cy2 = rt - 28
-    c.setFont(_TF, 9); c.drawString(m2 + 10, cy2, chd)    # ★ 7→9
+    c.setFont(_TF, 9); c.drawString(m2 + 10, cy2, chd)
     c.setFillColor(_PURPLE); c.drawString(m2 + 10 + c.stringWidth(chd, _TF, 9) + 5, cy2, 'ได้คืน')
 
+    # ── ประเภทหลักประกัน (คืน) ──
     cy2 -= 18
     for lb, cv2 in [('หลักประกันซอง', ib), ('หลักประกันสัญญา', ic), ('เอกสารประกันภัย', ii)]:
         _bg_chk(c, m2 + 10, cy2, cv2)
-        c.setFont(_TF, 8); c.setFillColor(_B)    # ★ 6→8
+        c.setFont(_TF, 8); c.setFillColor(_B)
         c.drawString(m2 + 22, cy2 + 1, lb + '  ของ  ' + cpy)
         cy2 -= 15
 
+    # ── ประเภทการชำระ (คืน) ──
     cy2 -= 4
     _bg_chk(c, m2 + 10, cy2, ptype == 'cash')
-    c.setFont(_TF, 8); c.setFillColor(_B)    # ★ 6→8
+    c.setFont(_TF, 8); c.setFillColor(_B)
     c.drawString(m2 + 22, cy2 + 1, 'เงินสด')
     _bg_chk(c, m2 + 80, cy2, ptype == 'bond'); c.drawString(m2 + 92, cy2 + 1, 'พันธบัตรรัฐบาลไทย')
     _bg_chk(c, m2 + 210, cy2, ptype == 'cheque'); c.drawString(m2 + 222, cy2 + 1, 'แคชเชียร์เช็ค')
@@ -771,23 +777,25 @@ def _create_bg_delivery_pdf(d):
     _bg_chk(c, m2 + 270, cy2, ptype == 'car_insurance')
     c.drawString(m2 + 282, cy2 + 1, 'กรมธรรม์ประกันภัย CAR & PL')
 
+    # ── ธนาคาร (คืน) ──
     cy2 -= 18
     _bg_label(c, m2 + 10, cy2 + 3, 'ชื่อธนาคาร/บริษัท')
-    _bg_field(c, m2 + 98, cy2 - 1, fw - 108, 15, bnk, 8)  # ★ 6→8
+    _bg_field(c, m2 + 98, cy2 - 1, fw - 108, 15, bnk, 8)
 
     cy2 -= 17
     _bg_label(c, m2 + 10, cy2 + 3, 'สาขา')
-    _bg_field(c, m2 + 42, cy2 - 1, fw - 52, 15, bbr, 8)   # ★ 6→8
+    _bg_field(c, m2 + 42, cy2 - 1, fw - 52, 15, bbr, 8)
 
     cy2 -= 17
     _bg_label(c, m2 + 10, cy2 + 3, 'เลขที่')
-    _bg_field(c, m2 + 42, cy2 - 1, 135, 15, bgn, 8)        # ★ 6→8
+    _bg_field(c, m2 + 42, cy2 - 1, 135, 15, bgn, 8)
     _bg_label(c, m2 + 186, cy2 + 3, 'จำนวน')
-    _bg_field(c, m2 + 218, cy2 - 1, 110, 15, bgv, 8)       # ★ 6→8
-    c.setFont(_TF, 6); c.setFillColor(_LGRAY)               # ★ 4→6
+    _bg_field(c, m2 + 218, cy2 - 1, 110, 15, bgv, 8)
+    c.setFont(_TF, 6); c.setFillColor(_LGRAY)
     c.drawString(m2 + 338, cy2 + 3, 'ครบถ้วน')
     _bg_sign(c, pw2 / 2 - 78, cy2 - 55, 'ลงชื่อผู้คืนหลักประกัน', 155, 45)
 
+    # ── จบ PDF ──
     c.save()
     return buf.getvalue()
 
@@ -798,7 +806,6 @@ def _create_bg_delivery_pdf(d):
 
 @app.route('/health')
 def health():
-    """Health check endpoint — ตรวจสอบ template และ font"""
     font_ok = True
     try:
         pdfmetrics.getFont(THAI_FONT)
@@ -817,7 +824,6 @@ def health():
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    """สร้าง PDF อ.ส.4"""
     try:
         err = _check_key()
         if err: return err
@@ -840,7 +846,6 @@ def generate():
 
 @app.route('/generate_bg_delivery', methods=['POST'])
 def generate_bg_delivery():
-    """สร้าง BG Delivery Form"""
     try:
         err = _check_key()
         if err: return err
@@ -863,7 +868,6 @@ def generate_bg_delivery():
 
 @app.route('/generate_lg', methods=['POST'])
 def api_generate_lg():
-    """สร้าง Request Approve LG"""
     try:
         err = _check_key()
         if err: return err
@@ -872,10 +876,9 @@ def api_generate_lg():
         if not data:
             return jsonify({'success': False, 'message': 'No JSON body'}), 400
 
-        # ★ แก้ไข #2: validate items เป็น list
         items = _validate_list_field(data, 'items')
         if not isinstance(data.get('items'), list):
-            data['items'] = items  # normalize ให้เป็น list เสมอ
+            data['items'] = items
 
         pdf_bytes = generate_lg_pdf(data)
         pdf_b64   = base64.b64encode(pdf_bytes).decode('utf-8')
@@ -894,7 +897,6 @@ def api_generate_lg():
 
 @app.route('/generate_pettycash', methods=['POST'])
 def api_generate_pettycash():
-    """สร้าง Petty Cash form"""
     try:
         err = _check_key()
         if err: return err
@@ -903,7 +905,6 @@ def api_generate_pettycash():
         if not data:
             return jsonify({'success': False, 'message': 'No JSON body'}), 400
 
-        # ★ แก้ไข #2: validate items เป็น list
         items = _validate_list_field(data, 'items')
         if not isinstance(data.get('items'), list):
             data['items'] = items
@@ -925,7 +926,6 @@ def api_generate_pettycash():
 
 @app.route('/generate_messenger', methods=['POST'])
 def api_generate_messenger():
-    """สร้าง Messenger Form"""
     try:
         err = _check_key()
         if err: return err
