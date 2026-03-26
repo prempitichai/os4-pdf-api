@@ -5,6 +5,7 @@ generate_messenger.py — ใบสั่งงาน Messenger & Logistic
 ★ v14 — แก้ไข:
   1. Font registration: เพิ่ม raise เมื่อหาฟอนต์ไม่พบ (แทน silent fail)
   2. Font size +2pt ทุกจุด (กลับค่าจาก v13 ที่ลดไป -2pt)
+★ v15 — รองรับ Thai + English key
 
 Font sizes (v14 vs v13):
   label: 10→12  |  data: 8→10  |  title: 14→16
@@ -260,22 +261,29 @@ def generate_messenger_pdf(data):
     # ── ประเภทพาหนะ ──
     yt  = 150
     veh = d.get('vehicleType', 'car')
+    # [FIX-VEHICLE v15] รองรับทั้ง English key ('car','motorcycle')
+    # และ Thai label ('รถยนต์','รถมอเตอร์ไซด์') จาก WebApp.gs
+    _veh    = str(veh or 'car').lower().strip()
+    is_car  = _veh in ['car', 'รถยนต์']
+    is_moto = _veh in ['motorcycle', 'motorbike', 'รถมอเตอร์ไซด์', 'รถมอเตอร์']
+    if not is_car and not is_moto:
+        is_car = True   # default = รถยนต์
     cnx = 310   # x เริ่มต้นของ "Contract Number"
-
+ 
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(yt), '(')
-    if veh == 'car':
+    if is_car:
         cv.setFont(FB, FS_LBL); cv.setFillColor(CF)
         cv.drawCentredString(LX + 20, Y(yt), '✓')
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX + 36, Y(yt), ') รถยนต์')
     cv.drawString(LX + 115, Y(yt), '(')
-    if veh == 'motorcycle':
+    if is_moto:
         cv.setFont(FB, FS_LBL); cv.setFillColor(CF)
         cv.drawCentredString(LX + 135, Y(yt), '✓')
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX + 151, Y(yt), ') รถมอเตอร์ไซด์')
-
+ 
     cv.drawString(cnx, Y(yt), 'Contract Number:')
     lw = cv.stringWidth('Contract Number:', F, FS_LBL)
     _vdots(cv, cnx + lw + 4, yt, _s(d.get('contractNumber')), RX)
