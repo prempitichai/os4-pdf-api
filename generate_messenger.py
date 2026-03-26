@@ -2,14 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 generate_messenger.py — ใบสั่งงาน Messenger & Logistic
-★ v14 — แก้ไข:
-  1. Font registration: เพิ่ม raise เมื่อหาฟอนต์ไม่พบ (แทน silent fail)
-  2. Font size +2pt ทุกจุด (กลับค่าจาก v13 ที่ลดไป -2pt)
-★ v15 — รองรับ Thai + English key
-
-Font sizes (v14 vs v13):
-  label: 10→12  |  data: 8→10  |  title: 14→16
-  dots:   8→10  |  footer: 5→7  |  checkbox: 8→10
+★ v15 — แก้ไข:
+  1. Font registration: เพิ่ม raise เมื่อหาฟอนต์ไม่พบ
+  2. Font size +2pt ทุกจุด
+  3. [NEW v15] vehicleType รองรับทั้ง English ('car','motorcycle')
+     และ Thai label ('รถยนต์','รถมอเตอร์ไซด์') จาก WebApp.gs
 """
 import io
 import os
@@ -29,7 +26,6 @@ from messenger_images import SCM_LOGO_B64, SCM_WATERMARK_B64
 logger = logging.getLogger(__name__)
 
 # ── FONT REGISTRATION ────────────────────────────────────────────────────────
-# ★ แก้ไข: เพิ่ม raise FileNotFoundError เมื่อหาฟอนต์ไม่พบ (แทน silent fail)
 _FONT_SEARCH_DIRS = [
     '/usr/share/fonts/truetype/freefont/',
     './fonts/',
@@ -39,15 +35,10 @@ _FONT_SEARCH_DIRS = [
 _FONT_REG = False
 
 def _register_fonts():
-    """
-    ลงทะเบียน TH Sarabun New ครั้งเดียว
-    ★ แก้ไข: raise FileNotFoundError ถ้าหาไม่พบ แทนการ fail เงียบๆ
-    """
     global _FONT_REG
     if _FONT_REG:
         return
 
-    # ตรวจสอบว่า register แล้วหรือยัง (กรณีที่ app.py register ก่อน)
     try:
         pdfmetrics.getFont('S')
         pdfmetrics.getFont('SB')
@@ -57,7 +48,6 @@ def _register_fonts():
     except KeyError:
         pass
 
-    # ค้นหาและ register
     found = False
     for fp in _FONT_SEARCH_DIRS:
         reg_path  = os.path.join(fp, 'THSarabunNew.ttf')
@@ -68,7 +58,6 @@ def _register_fonts():
                 if os.path.isfile(bold_path):
                     pdfmetrics.registerFont(TTFont('SB', bold_path))
                 else:
-                    # Bold ไม่พบ — ใช้ regular แทน
                     pdfmetrics.registerFont(TTFont('SB', reg_path))
                     logger.warning(f"ไม่พบ THSarabunNew-Bold.ttf — ใช้ regular แทน")
                 logger.info(f"ลงทะเบียนฟอนต์ Messenger จาก: {fp}")
@@ -79,7 +68,6 @@ def _register_fonts():
                 continue
 
     if not found:
-        # ★ แก้ไข: raise แทน silent fail
         raise FileNotFoundError(
             f"ไม่พบ THSarabunNew.ttf ใน: {_FONT_SEARCH_DIRS}\n"
             f"กรุณาวาง font files ไว้ใน ./fonts/ หรือ /app/fonts/"
@@ -87,7 +75,7 @@ def _register_fonts():
     _FONT_REG = True
 
 
-# ── DEFAULT COMPANY INFO (SCM Technologies — fallback ถ้า GAS ไม่ส่งมา) ─────────
+# ── DEFAULT COMPANY INFO ─────────────────────────────────────────────────────
 _SCM_DEFAULT = {
     'companyName':   'บจก. เอส ซีเอ็ม เอส เทคโนโลจีส์',
     'companyNameEn': 'SCM Technologies Co., Ltd.',
@@ -99,14 +87,13 @@ _SCM_DEFAULT = {
 
 # ── CONSTANTS ────────────────────────────────────────────────────────────────
 PW, PH = A4
-F  = 'S'   # THSarabunNew regular
-FB = 'SB'  # THSarabunNew bold
+F  = 'S'
+FB = 'SB'
 
-# ★ font sizes +2pt จาก v13
-FS_LBL = 12  # label (เดิม 10)
-FS_DAT = 10  # data  (เดิม 8)
-FS_T   = 16  # title (เดิม 14)
-FS_DOT = 10  # dots  (เดิม 8)
+FS_LBL = 12
+FS_DAT = 10
+FS_T   = 16
+FS_DOT = 10
 
 ML = 50; MR = 50; LX = ML; RX = PW - MR
 C  = HexColor('#333333'); CF = HexColor('#1a237e')
@@ -116,25 +103,18 @@ CB = HexColor('#bbbbbb'); CL = HexColor('#cccccc')
 # ── HELPERS ──────────────────────────────────────────────────────────────────
 
 def Y(t):
-    """แปลง y จากบนลงล่าง → ล่างขึ้นบน (reportlab coordinate)"""
     return PH - t
 
 def _s(v, d=''):
-    """Safe string — คืน default ถ้าว่าง"""
     s = str(v or '').strip()
     return s if s else d
 
 def _tbe():
-    """วันที่ปัจจุบันในรูปแบบ พ.ศ."""
     n = datetime.now()
     return f"{n.day:02d}/{n.month:02d}/{n.year + 543}"
 
 
 def _dots(cv, x1, yt, x2):
-    """
-    วาดจุด dotted line จาก x1 ถึง x2
-    ใช้ FS_DOT เป็น font size
-    """
     if x1 >= x2 - 2:
         return
     cv.setFont(F, FS_DOT)
@@ -148,15 +128,10 @@ def _dots(cv, x1, yt, x2):
 
 
 def _fdots(cv, yt):
-    """วาด full-width dotted line"""
     _dots(cv, LX, yt, RX)
 
 
 def _flines(cv, text, yt_list):
-    """
-    แสดงข้อความหลายบรรทัด พร้อม dotted underline
-    ข้อความจะ wrap ตาม yt_list ที่ให้มา
-    """
     mw    = RX - LX - 2
     lines = []
     if text:
@@ -172,7 +147,6 @@ def _flines(cv, text, yt_list):
         _fdots(cv, yt)
         if i < len(lines):
             tw = cv.stringWidth(lines[i], F, FS_DAT)
-            # วาด white background ก่อนเพื่อลบ dot ออก
             cv.setFillColor(white)
             cv.rect(LX - 1, Y(yt) - 2, tw + 4, FS_DAT + 3, fill=1, stroke=0)
             cv.setFont(F, FS_DAT)
@@ -181,19 +155,14 @@ def _flines(cv, text, yt_list):
 
 
 def _chk(cv, x, yt, checked, label):
-    """
-    วาด checkbox พร้อม label
-    ★ font size +2pt: checkbox ✓ เดิม 8→10
-    """
     sz = 14; ry = Y(yt) - 2
     cv.setLineWidth(1.0)
     if checked:
         cv.setStrokeColor(HexColor('#4a5eb8'))
         cv.setFillColor(HexColor('#4a5eb8'))
         cv.roundRect(x, ry, sz, sz, 3, fill=1, stroke=1)
-        cv.setFont(FB, 10)         # ★ 8→10
-        cv.setFillColor(white)
-        cv.drawCentredString(x + sz / 2, ry + 2.5, '✓')
+        # [FIX-CHECKMARK] วาด ✓ ด้วย lines แทน Unicode (รองรับทุก font)
+        _draw_checkmark(cv, x, ry, sz, white)
     else:
         cv.setStrokeColor(HexColor('#aab0c0'))
         cv.setFillColor(white)
@@ -204,11 +173,26 @@ def _chk(cv, x, yt, checked, label):
 
 
 def _vdots(cv, x, yt, val, end_x):
-    """วาดค่า + dotted line ต่อท้าย"""
     cv.setFont(F, FS_DAT)
     cv.setFillColor(CF)
     cv.drawString(x, Y(yt), val)
     _dots(cv, x + cv.stringWidth(val, F, FS_DAT) + 3, yt + 5, end_x)
+
+
+def _draw_checkmark(cv, x, ry, sz, color):
+    """
+    [FIX-CHECKMARK] วาด ✓ ด้วย drawLines แทน Unicode character
+    เพื่อรองรับฟอนต์ที่ไม่มี glyph U+2713 (✓)
+    """
+    cv.setStrokeColor(color)
+    cv.setLineWidth(1.8)
+    # จุด 3 จุด: ซ้ายกลาง → กลางล่าง → ขวาบน
+    p1x = x + sz * 0.15;  p1y = ry + sz * 0.48
+    p2x = x + sz * 0.38;  p2y = ry + sz * 0.22
+    p3x = x + sz * 0.85;  p3y = ry + sz * 0.72
+    cv.line(p1x, p1y, p2x, p2y)  # เส้นสั้น (ลงซ้าย)
+    cv.line(p2x, p2y, p3x, p3y)  # เส้นยาว (ขึ้นขวา)
+    cv.setLineWidth(1.0)          # reset
 
 
 # ════════════════════════════════════════════════════════════
@@ -243,7 +227,7 @@ def generate_messenger_pdf(data):
         logger.debug(f"Logo load ล้มเหลว: {e}")
 
     # ── Title ──
-    cv.setFont(FB, FS_T)   # ★ 14→16
+    cv.setFont(FB, FS_T)
     cv.setFillColor(C)
     cv.drawCentredString(PW / 2, Y(58), 'ใบสั่งงาน Messenger & Logistic')
 
@@ -261,48 +245,50 @@ def generate_messenger_pdf(data):
     # ── ประเภทพาหนะ ──
     yt  = 150
     veh = d.get('vehicleType', 'car')
-    # [FIX-VEHICLE v15] รองรับทั้ง English key ('car','motorcycle')
-    # และ Thai label ('รถยนต์','รถมอเตอร์ไซด์') จาก WebApp.gs
+    # [FIX-VEHICLE v15] รองรับทั้ง English key และ Thai label จาก WebApp.gs
+    # WebApp อาจส่ง 'car' หรือ 'รถยนต์' ขึ้นกับ version
     _veh    = str(veh or 'car').lower().strip()
     is_car  = _veh in ['car', 'รถยนต์']
     is_moto = _veh in ['motorcycle', 'motorbike', 'รถมอเตอร์ไซด์', 'รถมอเตอร์']
     if not is_car and not is_moto:
         is_car = True   # default = รถยนต์
+
     cnx = 310   # x เริ่มต้นของ "Contract Number"
- 
+
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(yt), '(')
     if is_car:
-        cv.setFont(FB, FS_LBL); cv.setFillColor(CF)
-        cv.drawCentredString(LX + 20, Y(yt), '✓')
+        # [FIX-CHECKMARK] วาด ✓ ด้วย lines
+        _draw_checkmark(cv, LX + 8, Y(yt) - 10, 14, CF)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX + 36, Y(yt), ') รถยนต์')
     cv.drawString(LX + 115, Y(yt), '(')
     if is_moto:
-        cv.setFont(FB, FS_LBL); cv.setFillColor(CF)
-        cv.drawCentredString(LX + 135, Y(yt), '✓')
+        # [FIX-CHECKMARK] วาด ✓ ด้วย lines
+        _draw_checkmark(cv, LX + 123, Y(yt) - 10, 14, CF)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX + 151, Y(yt), ') รถมอเตอร์ไซด์')
- 
+
     cv.drawString(cnx, Y(yt), 'Contract Number:')
     lw = cv.stringWidth('Contract Number:', F, FS_LBL)
     _vdots(cv, cnx + lw + 4, yt, _s(d.get('contractNumber')), RX)
 
     # ── ระดับความเร่งด่วน ──
     yt  = 178
+    # รับ boolean True, string 'true'/'TRUE'/'1' จาก WebApp.gs
     urg = d.get('isUrgent') in [True, 'TRUE', 'true', '1']
 
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(yt), '(')
     if urg:
-        cv.setFont(FB, FS_LBL); cv.setFillColor(CF)
-        cv.drawCentredString(LX + 20, Y(yt), '✓')
+        # [FIX-CHECKMARK] วาด ✓ ด้วย lines
+        _draw_checkmark(cv, LX + 8, Y(yt) - 10, 14, CF)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX + 36, Y(yt), ') ด่วน')
     cv.drawString(LX + 115, Y(yt), '(')
     if not urg:
-        cv.setFont(FB, FS_LBL); cv.setFillColor(CF)
-        cv.drawCentredString(LX + 135, Y(yt), '✓')
+        # [FIX-CHECKMARK] วาด ✓ ด้วย lines
+        _draw_checkmark(cv, LX + 123, Y(yt) - 10, 14, CF)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX + 151, Y(yt), ') ไม่ด่วน')
 
@@ -391,7 +377,7 @@ def generate_messenger_pdf(data):
     _dots(cv, LX + lw + 2, yt + 5, RX)
 
     # ── Footer ──
-    cv.setFont(F, 7); cv.setFillColor(CL)   # ★ 5→7
+    cv.setFont(F, 7); cv.setFillColor(CL)
     cv.drawCentredString(
         PW / 2, 15,
         f"ใบสั่งงาน Messenger & Logistic — Contract Tracker Pro  |  Generated: {_tbe()}"
