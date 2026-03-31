@@ -2,11 +2,22 @@
 # -*- coding: utf-8 -*-
 """
 generate_messenger.py — ใบสั่งงาน Messenger & Logistic
-★ v15 — แก้ไข:
-  1. Font registration: เพิ่ม raise เมื่อหาฟอนต์ไม่พบ
-  2. Font size +2pt ทุกจุด
-  3. [NEW v15] vehicleType รองรับทั้ง English ('car','motorcycle')
-     และ Thai label ('รถยนต์','รถมอเตอร์ไซด์') จาก WebApp.gs
+★ v16 — แก้ layout ให้ตรงตาม PDF ต้นแบบที่อนุมัติแล้ว
+  พิกัดทุกจุดวัดจาก PDF ต้นแบบโดยตรง (y ของ ReportLab = PH - y_pdf)
+  - title        y_pdf=778.6 → t=63
+  - entity row1  y_pdf=716.9 → t=125
+  - entity row2  y_pdf=688.9 → t=153
+  - vehicle      y_pdf=653.9 → t=188
+  - urgency      y_pdf=625.9 → t=216
+  - วันดำเนิน    y_pdf=599.9 → t=242
+  - messenger    y_pdf=563.9 → t=278
+  - รายละเอียด  y_pdf=528.9 → t=313 (5 lines: 344,375,406,437,468)
+  - นำกลับ       y_pdf=373.9 → t=468 (3 lines: 504,539,575)
+  - สถานที่       y_pdf=266.9 → t=575 (3 lines: 603,631,658)
+  - sig receiver y_pdf=155.9 → t=686
+  - sig order1   y_pdf=127.9 → t=714
+  - sig order2   y_pdf=99.9  → t=742
+  - sig approver y_pdf=71.9  → t=770
 """
 import io
 import os
@@ -27,9 +38,10 @@ logger = logging.getLogger(__name__)
 
 # ── FONT REGISTRATION ────────────────────────────────────────────────────────
 _FONT_SEARCH_DIRS = [
-    '/usr/share/fonts/truetype/freefont/',
     './fonts/',
     '/app/fonts/',
+    os.path.expanduser('~/fonts/'),
+    '/usr/share/fonts/truetype/freefont/',
     './',
 ]
 _FONT_REG = False
@@ -38,12 +50,10 @@ def _register_fonts():
     global _FONT_REG
     if _FONT_REG:
         return
-
     try:
         pdfmetrics.getFont('S')
         pdfmetrics.getFont('SB')
         _FONT_REG = True
-        logger.debug("ฟอนต์ S/SB ถูก register แล้ว — ข้าม")
         return
     except KeyError:
         pass
@@ -65,49 +75,45 @@ def _register_fonts():
                 break
             except Exception as e:
                 logger.warning(f"Register font ล้มเหลวจาก {fp}: {e}")
-                continue
 
     if not found:
         raise FileNotFoundError(
             f"ไม่พบ THSarabunNew.ttf ใน: {_FONT_SEARCH_DIRS}\n"
-            f"กรุณาวาง font files ไว้ใน ./fonts/ หรือ /app/fonts/"
+            "กรุณาวาง font files ไว้ใน ./fonts/ หรือ /app/fonts/"
         )
     _FONT_REG = True
 
 
-# ── DEFAULT COMPANY INFO ─────────────────────────────────────────────────────
-_SCM_DEFAULT = {
-    'companyName':   'บจก. เอส ซีเอ็ม เอส เทคโนโลจีส์',
-    'companyNameEn': 'SCM Technologies Co., Ltd.',
-    'address':       '92/41 อาคารสาธรธานี 2 ชั้นที่ 15 ถนนสาทรเหนือ แขวงสีลม เขตบางรัก กรุงเทพมหานคร 10500',
-    'phone':         '02-116-4312, 02-116-4213',
-    'fax':           '02-235-3699',
-    'taxId':         '0105563004553',
-}
-
 # ── CONSTANTS ────────────────────────────────────────────────────────────────
-PW, PH = A4
-F  = 'S'
-FB = 'SB'
+PW, PH = A4            # 595.276 x 841.890
+F       = 'S'          # THSarabunNew regular
+FB      = 'SB'         # THSarabunNew bold
 
-FS_LBL = 12
-FS_DAT = 10
-FS_T   = 16
-FS_DOT = 10
+FS_T   = 16            # title
+FS_LBL = 12            # label
+FS_DAT = 10            # data value
+FS_DOT = 10            # dots
 
-ML = 50; MR = 50; LX = ML; RX = PW - MR
-C  = HexColor('#333333'); CF = HexColor('#1a237e')
-CB = HexColor('#bbbbbb'); CL = HexColor('#cccccc')
+LX = 50                # left margin (x)
+RX = PW - 50           # right margin (x)
+
+C   = HexColor('#333333')   # text ทั่วไป
+CF  = HexColor('#1a237e')   # ค่าที่กรอก (น้ำเงินเข้ม)
+CB  = HexColor('#bbbbbb')   # dots
+CL  = HexColor('#cccccc')   # footer
 
 
 # ── HELPERS ──────────────────────────────────────────────────────────────────
 
 def Y(t):
+    """แปลง t (จากบนลงล่าง) → y coordinate ของ ReportLab (จากล่างขึ้นบน)"""
     return PH - t
+
 
 def _s(v, d=''):
     s = str(v or '').strip()
     return s if s else d
+
 
 def _tbe():
     n = datetime.now()
@@ -115,6 +121,7 @@ def _tbe():
 
 
 def _dots(cv, x1, yt, x2):
+    """วาด dot line แนวนอน จาก x1 ถึง x2 ที่ตำแหน่ง Y(yt)"""
     if x1 >= x2 - 2:
         return
     cv.setFont(F, FS_DOT)
@@ -123,15 +130,21 @@ def _dots(cv, x1, yt, x2):
     n   = int((x2 - x1) / (dw * 0.8))
     txt = '.' * n
     while cv.stringWidth(txt, F, FS_DOT) > (x2 - x1) and n > 0:
-        n -= 1; txt = '.' * n
+        n -= 1
+        txt = '.' * n
     cv.drawString(x1, Y(yt), txt)
 
 
 def _fdots(cv, yt):
+    """full-width dot line"""
     _dots(cv, LX, yt, RX)
 
 
 def _flines(cv, text, yt_list):
+    """
+    วาด dot lines และ fill ข้อความ (wrap อัตโนมัติ)
+    yt_list: รายการ t-values ของแต่ละบรรทัด
+    """
     mw    = RX - LX - 2
     lines = []
     if text:
@@ -154,55 +167,64 @@ def _flines(cv, text, yt_list):
             cv.drawString(LX, Y(yt) + 1, lines[i])
 
 
+def _draw_checkmark(cv, x, ry, sz, color):
+    """
+    วาด ✓ ด้วย drawLines (รองรับฟอนต์ที่ไม่มี glyph U+2713)
+    x, ry: bottom-left ของ checkbox rect
+    sz: ขนาด checkbox
+    """
+    cv.setStrokeColor(color)
+    cv.setLineWidth(1.8)
+    p1x = x + sz * 0.15;  p1y = ry + sz * 0.48
+    p2x = x + sz * 0.38;  p2y = ry + sz * 0.22
+    p3x = x + sz * 0.85;  p3y = ry + sz * 0.72
+    cv.line(p1x, p1y, p2x, p2y)
+    cv.line(p2x, p2y, p3x, p3y)
+    cv.setLineWidth(1.0)
+
+
 def _chk(cv, x, yt, checked, label):
-    sz = 14; ry = Y(yt) - 2
+    """
+    วาด checkbox + label
+    x: left edge ของ checkbox
+    yt: t value (ใช้กับ Y(yt) สำหรับ bottom ของ text)
+    """
+    sz = 14
+    ry = Y(yt) - 2   # bottom-left ของ rect
+
     cv.setLineWidth(1.0)
     if checked:
         cv.setStrokeColor(HexColor('#4a5eb8'))
         cv.setFillColor(HexColor('#4a5eb8'))
         cv.roundRect(x, ry, sz, sz, 3, fill=1, stroke=1)
-        # [FIX-CHECKMARK] วาด ✓ ด้วย lines แทน Unicode (รองรับทุก font)
         _draw_checkmark(cv, x, ry, sz, white)
     else:
         cv.setStrokeColor(HexColor('#aab0c0'))
         cv.setFillColor(white)
         cv.roundRect(x, ry, sz, sz, 3, fill=1, stroke=1)
+
     cv.setFont(F, FS_LBL)
     cv.setFillColor(C)
     cv.drawString(x + sz + 5, ry + 1, label)
 
 
 def _vdots(cv, x, yt, val, end_x):
+    """วาดค่า + dot line ต่อท้าย"""
     cv.setFont(F, FS_DAT)
     cv.setFillColor(CF)
     cv.drawString(x, Y(yt), val)
-    _dots(cv, x + cv.stringWidth(val, F, FS_DAT) + 3, yt + 5, end_x)
-
-
-def _draw_checkmark(cv, x, ry, sz, color):
-    """
-    [FIX-CHECKMARK] วาด ✓ ด้วย drawLines แทน Unicode character
-    เพื่อรองรับฟอนต์ที่ไม่มี glyph U+2713 (✓)
-    """
-    cv.setStrokeColor(color)
-    cv.setLineWidth(1.8)
-    # จุด 3 จุด: ซ้ายกลาง → กลางล่าง → ขวาบน
-    p1x = x + sz * 0.15;  p1y = ry + sz * 0.48
-    p2x = x + sz * 0.38;  p2y = ry + sz * 0.22
-    p3x = x + sz * 0.85;  p3y = ry + sz * 0.72
-    cv.line(p1x, p1y, p2x, p2y)  # เส้นสั้น (ลงซ้าย)
-    cv.line(p2x, p2y, p3x, p3y)  # เส้นยาว (ขึ้นขวา)
-    cv.setLineWidth(1.0)          # reset
+    after = x + cv.stringWidth(val, F, FS_DAT) + 3
+    _dots(cv, after, yt + 5, end_x)
 
 
 # ════════════════════════════════════════════════════════════
-# MAIN: generate_messenger_pdf
+# MAIN
 # ════════════════════════════════════════════════════════════
 
 def generate_messenger_pdf(data):
     """
     สร้าง PDF ใบสั่งงาน Messenger & Logistic
-    รองรับ entity selector (SCM Tech, SCM S, SCM C, Holding, Cyber, BC, B2B, Fahcloud)
+    Layout พิกัดวัดจาก PDF ต้นแบบ (v16)
     """
     _register_fonts()
 
@@ -210,7 +232,7 @@ def generate_messenger_pdf(data):
     buf = io.BytesIO()
     cv  = canvas.Canvas(buf, pagesize=A4)
 
-    # ── Watermark ──
+    # ── Watermark (วาดก่อนสุด อยู่ด้านหลัง) ─────────────────────────────
     try:
         wm = ImageReader(io.BytesIO(base64.b64decode(SCM_WATERMARK_B64)))
         cv.drawImage(wm, 60, Y(380) - 220, width=460, height=220,
@@ -218,170 +240,237 @@ def generate_messenger_pdf(data):
     except Exception as e:
         logger.debug(f"Watermark load ล้มเหลว: {e}")
 
-    # ── Logo ──
+    # ── Logo (top-right) ──────────────────────────────────────────────────
+    # ตาม PDF ต้นแบบ: logo อยู่บนขวา ห่างจากขอบ right ~50, top ~18
     try:
         logo = ImageReader(io.BytesIO(base64.b64decode(SCM_LOGO_B64)))
-        cv.drawImage(logo, PW - MR - 90, Y(18) - 45, width=90, height=45,
+        cv.drawImage(logo, RX - 90, Y(18) - 45, width=90, height=45,
                      preserveAspectRatio=True, mask='auto')
     except Exception as e:
         logger.debug(f"Logo load ล้มเหลว: {e}")
 
-    # ── Title ──
+    # ── Title: t=63 ───────────────────────────────────────────────────────
     cv.setFont(FB, FS_T)
     cv.setFillColor(C)
-    cv.drawCentredString(PW / 2, Y(58), 'ใบสั่งงาน Messenger & Logistic')
+    cv.drawCentredString(PW / 2, Y(63), 'ใบสั่งงาน Messenger & Logistic')
 
-    # ── Entity checkboxes (2 แถว) ──
-    ent  = _s(d.get('entity'), '').lower().replace(' ', '')
-    slot = (RX - LX) / 4
-    entities_row1 = ['SCM Tech', 'SCM S', 'SCM C', 'Holding']
-    entities_row2 = ['Cyber',    'BC',    'B2B',   'Fahcloud']
+    # ── Entity checkboxes ─────────────────────────────────────────────────
+    # พิกัดวัดจาก PDF: row1 y_pdf=716.9 → t=125, row2 y_pdf=688.9 → t=153
+    # label x: [69, 193, 317, 441]  checkbox x: label_x - 20
+    ent = _s(d.get('entity'), '').lower().replace(' ', '').replace('-', '')
+    _ENTITY_NORM = {
+        'scmtech': 'scmtech', 'scmt': 'scmtech',
+        'scms': 'scms',
+        'scmc': 'scmc',
+        'holding': 'holding',
+        'cyber': 'cyber',
+        'bc': 'bc',
+        'b2b': 'b2b',
+        'fahcloud': 'fahcloud',
+    }
+    ent = _ENTITY_NORM.get(ent, ent)
 
-    for i, nm in enumerate(entities_row1):
-        _chk(cv, LX + i * slot, 86, nm.lower().replace(' ', '') == ent, nm)
-    for i, nm in enumerate(entities_row2):
-        _chk(cv, LX + i * slot, 114, nm.lower().replace(' ', '') == ent, nm)
+    # x positions ของ label แต่ละ column (วัดจาก PDF)
+    _LABEL_X = [69.0, 192.8, 316.6, 440.5]
+    _ENT_ROW1 = [('SCM Tech', 'scmtech'), ('SCM S', 'scms'),
+                 ('SCM C',    'scmc'),    ('Holding', 'holding')]
+    _ENT_ROW2 = [('Cyber', 'cyber'), ('BC', 'bc'),
+                 ('B2B',   'b2b'),   ('Fahcloud', 'fahcloud')]
 
-    # ── ประเภทพาหนะ ──
-    yt  = 150
+    for i, (label, key) in enumerate(_ENT_ROW1):
+        _chk(cv, _LABEL_X[i] - 20, 125, key == ent, label)
+
+    for i, (label, key) in enumerate(_ENT_ROW2):
+        _chk(cv, _LABEL_X[i] - 20, 153, key == ent, label)
+
+    # ── Vehicle type: t=188 ───────────────────────────────────────────────
+    # พิกัดจาก PDF: ( x=50, checkbox ~58, ) x=86, label x=93
+    #               ( x=165, checkbox ~173, ) x=201, label x=208
+    # Contract Number: x=310
     veh = d.get('vehicleType', 'car')
-    # [FIX-VEHICLE v15] รองรับทั้ง English key และ Thai label จาก WebApp.gs
-    # WebApp อาจส่ง 'car' หรือ 'รถยนต์' ขึ้นกับ version
     _veh    = str(veh or 'car').lower().strip()
     is_car  = _veh in ['car', 'รถยนต์']
     is_moto = _veh in ['motorcycle', 'motorbike', 'รถมอเตอร์ไซด์', 'รถมอเตอร์']
     if not is_car and not is_moto:
-        is_car = True   # default = รถยนต์
+        is_car = True
 
-    cnx = 310   # x เริ่มต้นของ "Contract Number"
+    # บังคับ: รับ boolean flags จาก WebApp.gs ด้วย (v15 compat)
+    if d.get('vehicle_car') is True:        is_car, is_moto = True, False
+    if d.get('vehicle_motorcycle') is True: is_car, is_moto = False, True
+
+    T_VEH = 188   # t value สำหรับแถว vehicle
 
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(yt), '(')
+    # col 1: รถยนต์
+    cv.drawString(50, Y(T_VEH), '(')
+    sz = 14
+    ry_v = Y(T_VEH) - 2
+    cv.setLineWidth(1.0)
     if is_car:
-        # [FIX-CHECKMARK] วาด ✓ ด้วย lines
-        _draw_checkmark(cv, LX + 8, Y(yt) - 10, 14, CF)
+        cv.setStrokeColor(HexColor('#4a5eb8')); cv.setFillColor(HexColor('#4a5eb8'))
+        cv.roundRect(58, ry_v, sz, sz, 3, fill=1, stroke=1)
+        _draw_checkmark(cv, 58, ry_v, sz, white)
+    else:
+        cv.setStrokeColor(HexColor('#aab0c0')); cv.setFillColor(white)
+        cv.roundRect(58, ry_v, sz, sz, 3, fill=1, stroke=1)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX + 36, Y(yt), ') รถยนต์')
-    cv.drawString(LX + 115, Y(yt), '(')
+    cv.drawString(86, Y(T_VEH), ') รถยนต์')
+
+    # col 2: รถมอเตอร์ไซด์
+    cv.drawString(165, Y(T_VEH), '(')
+    ry_v2 = Y(T_VEH) - 2
     if is_moto:
-        # [FIX-CHECKMARK] วาด ✓ ด้วย lines
-        _draw_checkmark(cv, LX + 123, Y(yt) - 10, 14, CF)
+        cv.setStrokeColor(HexColor('#4a5eb8')); cv.setFillColor(HexColor('#4a5eb8'))
+        cv.roundRect(173, ry_v2, sz, sz, 3, fill=1, stroke=1)
+        _draw_checkmark(cv, 173, ry_v2, sz, white)
+    else:
+        cv.setStrokeColor(HexColor('#aab0c0')); cv.setFillColor(white)
+        cv.roundRect(173, ry_v2, sz, sz, 3, fill=1, stroke=1)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX + 151, Y(yt), ') รถมอเตอร์ไซด์')
+    cv.drawString(201, Y(T_VEH), ') รถมอเตอร์ไซด์')
 
-    cv.drawString(cnx, Y(yt), 'Contract Number:')
-    lw = cv.stringWidth('Contract Number:', F, FS_LBL)
-    _vdots(cv, cnx + lw + 4, yt, _s(d.get('contractNumber')), RX)
+    # Contract Number (right column): x=310
+    cv.setFont(F, FS_LBL); cv.setFillColor(C)
+    cv.drawString(310, Y(T_VEH), 'Contract Number:')
+    lw_cn = cv.stringWidth('Contract Number:', F, FS_LBL)
+    _vdots(cv, 310 + lw_cn + 4, T_VEH, _s(d.get('contractNumber')), RX)
 
-    # ── ระดับความเร่งด่วน ──
-    yt  = 178
-    # รับ boolean True, string 'true'/'TRUE'/'1' จาก WebApp.gs
+    # ── Urgency: t=216 ───────────────────────────────────────────────────
+    # พิกัดเหมือน vehicle row (x=50,165) แต่ t=216
+    # วันที่สั่งงาน: x=312.5 → 310
     urg = d.get('isUrgent') in [True, 'TRUE', 'true', '1']
+    # compat: WebApp.gs อาจส่ง urgent_true/urgent_false
+    if d.get('urgent_true') is True:  urg = True
+    if d.get('urgent_false') is True: urg = False
+
+    T_URG = 216
 
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(yt), '(')
+    # col 1: ด่วน
+    cv.drawString(50, Y(T_URG), '(')
+    ry_u = Y(T_URG) - 2
+    cv.setLineWidth(1.0)
     if urg:
-        # [FIX-CHECKMARK] วาด ✓ ด้วย lines
-        _draw_checkmark(cv, LX + 8, Y(yt) - 10, 14, CF)
+        cv.setStrokeColor(HexColor('#4a5eb8')); cv.setFillColor(HexColor('#4a5eb8'))
+        cv.roundRect(58, ry_u, sz, sz, 3, fill=1, stroke=1)
+        _draw_checkmark(cv, 58, ry_u, sz, white)
+    else:
+        cv.setStrokeColor(HexColor('#aab0c0')); cv.setFillColor(white)
+        cv.roundRect(58, ry_u, sz, sz, 3, fill=1, stroke=1)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX + 36, Y(yt), ') ด่วน')
-    cv.drawString(LX + 115, Y(yt), '(')
+    cv.drawString(86, Y(T_URG), ') ด่วน')
+
+    # col 2: ไม่ด่วน
+    cv.drawString(165, Y(T_URG), '(')
+    ry_u2 = Y(T_URG) - 2
     if not urg:
-        # [FIX-CHECKMARK] วาด ✓ ด้วย lines
-        _draw_checkmark(cv, LX + 123, Y(yt) - 10, 14, CF)
+        cv.setStrokeColor(HexColor('#4a5eb8')); cv.setFillColor(HexColor('#4a5eb8'))
+        cv.roundRect(173, ry_u2, sz, sz, 3, fill=1, stroke=1)
+        _draw_checkmark(cv, 173, ry_u2, sz, white)
+    else:
+        cv.setStrokeColor(HexColor('#aab0c0')); cv.setFillColor(white)
+        cv.roundRect(173, ry_u2, sz, sz, 3, fill=1, stroke=1)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX + 151, Y(yt), ') ไม่ด่วน')
+    cv.drawString(201, Y(T_URG), ') ไม่ด่วน')
 
-    cv.drawString(cnx, Y(yt), 'วันที่สั่งงาน :')
-    lw = cv.stringWidth('วันที่สั่งงาน :', F, FS_LBL)
-    _vdots(cv, cnx + lw + 4, yt, _s(d.get('orderDate', _tbe())), RX)
-
-    # ── วันที่ดำเนินงาน ──
-    yt = 204
+    # วันที่สั่งงาน (right column): x=310
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(cnx, Y(yt), 'วันที่ดำเนินงาน :')
-    lw = cv.stringWidth('วันที่ดำเนินงาน :', F, FS_LBL)
-    _vdots(cv, cnx + lw + 4, yt, _s(d.get('operationDate')), RX)
+    cv.drawString(310, Y(T_URG), 'วันที่สั่งงาน :')
+    lw_od = cv.stringWidth('วันที่สั่งงาน :', F, FS_LBL)
+    _vdots(cv, 310 + lw_od + 4, T_URG, _s(d.get('orderDate', _tbe())), RX)
 
-    # ── ชื่อเจ้าหน้าที่ Messenger ──
-    yt = 240
+    # ── วันที่ดำเนินงาน: t=242 ───────────────────────────────────────────
+    # อยู่แค่ column ขวา x=310
+    T_OPD = 242
+    cv.setFont(F, FS_LBL); cv.setFillColor(C)
+    cv.drawString(310, Y(T_OPD), 'วันที่ดำเนินงาน :')
+    lw_opd = cv.stringWidth('วันที่ดำเนินงาน :', F, FS_LBL)
+    _vdots(cv, 310 + lw_opd + 4, T_OPD, _s(d.get('operationDate')), RX)
+
+    # ── ชื่อเจ้าหน้าที่: t=278 ───────────────────────────────────────────
+    T_MSG = 278
+    lbl_msg = 'ชื่อเจ้าหน้าที่ (Messenger / Logistic):'
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
-    lbl = 'ชื่อเจ้าหน้าที่ (Messenger / Logistic):'
-    cv.drawString(LX, Y(yt), lbl)
-    lw = cv.stringWidth(lbl, FB, FS_LBL)
+    cv.drawString(LX, Y(T_MSG), lbl_msg)
+    lw_msg = cv.stringWidth(lbl_msg, FB, FS_LBL)
+    # ค่าชื่อ messenger
+    nm_val = _s(d.get('messengerName', 'พี่วุฒ'))
     cv.setFont(F, FS_DAT); cv.setFillColor(CF)
-    cv.drawString(LX + lw + 4, Y(yt), _s(d.get('messengerName', 'พี่วุฒ')))
-    _fdots(cv, yt + 5)
+    cv.drawString(LX + lw_msg + 4, Y(T_MSG), nm_val)
+    _fdots(cv, T_MSG + 5)
 
-    # ── รายละเอียดงาน ──
+    # ── รายละเอียดของงาน: label t=313, lines t=[344,375,406,437,468] ────
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(275), 'รายละเอียดของงานที่ให้ไปรับ-ส่ง:')
-    _flines(cv, _s(d.get('jobDetail')), [299, 323, 347, 371, 395])
+    cv.drawString(LX, Y(313), 'รายละเอียดของงานที่ให้ไปรับ-ส่ง:')
+    _flines(cv, _s(d.get('jobDetail')), [344, 375, 406, 437, 468])
 
-    # ── สิ่งที่นำกลับ ──
+    # ── สิ่งที่นำกลับ: label t=468, lines t=[504,539,575] ───────────────
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(430), 'สิ่งที่นำกลับ :')
-    _flines(cv, _s(d.get('returnItems')), [454, 478, 502])
+    cv.drawString(LX, Y(468), 'สิ่งที่นำกลับ :')
+    _flines(cv, _s(d.get('returnItems')), [504, 539, 575])
 
-    # ── สถานที่ ──
+    # ── สถานที่: label t=575, lines t=[603,631,658] ──────────────────────
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(537), 'สถานที่ ส่งงาน-รับงาน:')
-    _flines(cv, _s(d.get('location')), [561, 585, 609])
+    cv.drawString(LX, Y(575), 'สถานที่ ส่งงาน-รับงาน:')
+    _flines(cv, _s(d.get('location')), [603, 631, 658])
 
-    # ── Signature section ──
-    mid = 305
+    # ── Signature section ─────────────────────────────────────────────────
+    # พิกัดจาก PDF: mid=305
+    SIG_MID = 305
 
-    # ผู้รับเอกสาร
-    yt = 648
+    # ผู้รับเอกสาร: t=686
+    T_SIG1 = 686
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(yt), 'ผู้รับเอกสาร :')
-    lw = cv.stringWidth('ผู้รับเอกสาร :', F, FS_LBL)
-    _dots(cv, LX + lw + 2, yt + 5, mid - 5)
-    cv.drawString(mid, Y(yt), '/วันที่รับเอกสาร')
-    lw2 = cv.stringWidth('/วันที่รับเอกสาร', F, FS_LBL)
-    _dots(cv, mid + lw2 + 2, yt + 5, RX)
+    lbl_recv = 'ผู้รับเอกสาร :'
+    cv.drawString(LX, Y(T_SIG1), lbl_recv)
+    lw_recv = cv.stringWidth(lbl_recv, F, FS_LBL)
+    _dots(cv, LX + lw_recv + 2, T_SIG1 + 5, SIG_MID - 5)
+    lbl_recv2 = '/วันที่รับเอกสาร'
+    cv.drawString(SIG_MID, Y(T_SIG1), lbl_recv2)
+    lw_recv2 = cv.stringWidth(lbl_recv2, F, FS_LBL)
+    _dots(cv, SIG_MID + lw_recv2 + 2, T_SIG1 + 5, RX)
 
-    # ผู้สั่งงาน
-    yt = 676
+    # ผู้สั่งงาน / วันที่สั่งงาน: t=714
+    T_SIG2 = 714
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    lbl = 'ผู้สั่งงาน / วันที่สั่งงาน :'
-    cv.drawString(LX, Y(yt), lbl)
-    lw = cv.stringWidth(lbl, F, FS_LBL)
-
+    lbl_ord = 'ผู้สั่งงาน / วันที่สั่งงาน :'
+    cv.drawString(LX, Y(T_SIG2), lbl_ord)
+    lw_ord = cv.stringWidth(lbl_ord, F, FS_LBL)
+    # fill ordererName
+    nm_ord = _s(d.get('ordererName'))
     cv.setFont(FB, FS_DAT); cv.setFillColor(CF)
-    nm = _s(d.get('ordererName'))
-    cv.drawString(LX + lw + 4, Y(yt), nm)
-    _dots(cv, LX + lw + cv.stringWidth(nm, FB, FS_DAT) + 6, yt + 5, mid - 5)
-
-    cv.setFont(F, FS_LBL); cv.setFillColor(C); cv.drawString(mid, Y(yt), '/')
-    cv.setFont(F, FS_DAT); cv.setFillColor(CF)
-    dt = _s(d.get('ordererDate'))
-    cv.drawString(mid + 8, Y(yt), dt)
-    _dots(cv, mid + 8 + cv.stringWidth(dt, F, FS_DAT) + 2, yt + 5, RX)
-
-    # ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น
-    yt = 704
+    cv.drawString(LX + lw_ord + 4, Y(T_SIG2), nm_ord)
+    gap_ord = cv.stringWidth(nm_ord, FB, FS_DAT) if nm_ord else 0
+    _dots(cv, LX + lw_ord + gap_ord + 6, T_SIG2 + 5, SIG_MID - 5)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    lbl = 'ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น :'
-    cv.drawString(LX, Y(yt), lbl)
-    lw = cv.stringWidth(lbl, F, FS_LBL)
-    _dots(cv, LX + lw + 2, yt + 5, mid - 5)
-    cv.drawString(mid, Y(yt), '/')
-    _dots(cv, mid + 8, yt + 5, RX)
+    cv.drawString(SIG_MID, Y(T_SIG2), '/')
+    _dots(cv, SIG_MID + 8, T_SIG2 + 5, RX)
 
-    # ผู้อนุมัติ
-    yt = 732
+    # ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น: t=742
+    T_SIG3 = 742
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(yt), 'ผู้อนุมัติ :')
-    lw = cv.stringWidth('ผู้อนุมัติ :', F, FS_LBL)
-    _dots(cv, LX + lw + 2, yt + 5, RX)
+    lbl_fin = 'ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น :'
+    cv.drawString(LX, Y(T_SIG3), lbl_fin)
+    lw_fin = cv.stringWidth(lbl_fin, F, FS_LBL)
+    _dots(cv, LX + lw_fin + 2, T_SIG3 + 5, SIG_MID - 5)
+    cv.drawString(SIG_MID, Y(T_SIG3), '/')
+    _dots(cv, SIG_MID + 8, T_SIG3 + 5, RX)
 
-    # ── Footer ──
+    # ผู้อนุมัติ: t=770
+    T_SIG4 = 770
+    cv.setFont(F, FS_LBL); cv.setFillColor(C)
+    lbl_apv = 'ผู้อนุมัติ :'
+    cv.drawString(LX, Y(T_SIG4), lbl_apv)
+    lw_apv = cv.stringWidth(lbl_apv, F, FS_LBL)
+    _dots(cv, LX + lw_apv + 2, T_SIG4 + 5, RX)
+
+    # ── Footer ────────────────────────────────────────────────────────────
     cv.setFont(F, 7); cv.setFillColor(CL)
     cv.drawCentredString(
         PW / 2, 15,
         f"ใบสั่งงาน Messenger & Logistic — Contract Tracker Pro  |  Generated: {_tbe()}"
     )
 
-    cv.save(); buf.seek(0)
+    cv.save()
+    buf.seek(0)
     return buf.getvalue()
