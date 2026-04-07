@@ -51,7 +51,7 @@ def _fmt_date_th(v):
         y = parts[2]
         if m < 1 or m > 12:
             return s
-        return f'{d} {_TH_MONTHS[m-1]} {y}'
+        return f'{d} {_TH_MONTHS[m-1]} พ.ศ.{y}'
     except (ValueError, IndexError):
         return s
 
