@@ -47,6 +47,8 @@ from generate_messenger import generate_messenger_pdf
 from generate_bg_withdraw import register_bg_withdraw_routes
 from generate_request_doc import register_request_doc_routes
 from generate_general_letter import register_general_letter_routes
+from generate_warning_letter import register_warning_letter_routes
+from generate_training_agreement import register_training_agreement_routes
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -889,6 +891,8 @@ def api_generate_messenger():
 register_bg_withdraw_routes(app)
 register_request_doc_routes(app)
 register_general_letter_routes(app)
+register_warning_letter_routes(app)
+register_training_agreement_routes(app)
 
 # ════════════════════════════════════════════════════════════
 # MAIN
