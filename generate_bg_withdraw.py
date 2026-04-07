@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: weasyprint-overlay-v2-final
+# VERSION: weasyprint-overlay-v2-final-fix
 """
 generate_bg_withdraw.py
 =======================
@@ -8,14 +8,7 @@ Render API — สร้าง PDF 2 แบบ overlay บน bg_template.pdf
   1. POST /generate_bg_withdraw — หนังสือแจ้งขอถอนหลักประกันสัญญา
   2. POST /generate_bg_poa      — หนังสือมอบอำนาจขอคืนหนังสือค้ำประกัน
 
-Approach:
-  - WeasyPrint แปลง HTML → PDF (Thai justify สวยงาม)
-  - merge ทับบน bg_template.pdf (header/watermark/footer)
-  - ส่ง PDF base64 กลับ GAS
-
-Dependencies: weasyprint, pypdf
-Font: THSarabunNew (fonts/THSarabunNew.ttf + THSarabunNew-Bold.ttf)
-Template: bg_template.pdf (root folder)
+★ FIX: _fmt() format string bug — comma เกินทำให้ fallback เป็น raw number
 """
 
 import os, base64, logging
@@ -27,10 +20,18 @@ logger = logging.getLogger(__name__)
 
 # ── Number formatter ───────────────────────────────────────────────────
 def _fmt(v):
-    """แปลงตัวเลข → format xxx,xxx.xx"""
-    if not v: return ''
-    try: return f'{float(str(v).replace(",","")),:,.2f}'
-    except: return str(v)
+    """แปลงตัวเลข → format xxx,xxx.xx
+    ★ FIX: format string เดิมมี comma เกิน → error → fallback เป็น raw
+    """
+    if not v:
+        return ''
+    try:
+        n = float(str(v).replace(',', ''))
+        if n == 0:
+            return ''
+        return f'{n:,.2f}'
+    except (ValueError, TypeError):
+        return str(v)
 
 # ── Font loader ────────────────────────────────────────────────────────
 def _font_b64():
@@ -79,15 +80,12 @@ def _css(fonts):
         min-height: 297mm;
         padding: 32mm 20mm 25mm 25mm;
     }}
-    /* ── หัวหนังสือ ── */
     .doc-number  {{ font-size: 10pt; margin-bottom: 6mm; }}
     .title       {{ font-size: 12pt; font-weight: bold; text-align: center; margin-bottom: 8mm; }}
     .written-at  {{ font-size: 10pt; text-align: right; margin-bottom: 6mm; line-height: 1.6; }}
-    /* ── เรื่อง/เรียน ── */
     .subject-line  {{ display: flex; margin-bottom: 4mm; }}
     .subject-label {{ font-weight: bold; min-width: 18mm; flex-shrink: 0; }}
     .subject-value {{ flex: 1; }}
-    /* ── ย่อหน้า ── */
     .para {{
         font-size: 10pt;
         text-align: justify;
@@ -95,7 +93,6 @@ def _css(fonts):
         line-height: 1.6;
         margin-bottom: 4mm;
     }}
-    /* ── ลายเซ็น หนังสือขอถอน ── */
     .closing-area {{
         display: flex;
         flex-direction: column;
@@ -114,7 +111,6 @@ def _css(fonts):
     }}
     .sig-name    {{ font-size: 10pt; margin-bottom: 1mm; }}
     .sig-pos     {{ font-size: 10pt; }}
-    /* ── ลายเซ็น หนังสือมอบอำนาจ — แนวตั้ง ครึ่งขวา v12 ── */
     .sig-col {{
         width: 50%;
         margin-left: auto;
@@ -160,7 +156,6 @@ def _css(fonts):
         padding-left: 12mm;
         padding-right: 23mm;
     }}
-    /* ── อื่นๆ ── */
     .stamp  {{ font-size: 9pt; color: #666; margin-top: 6mm; }}
     .clearfix {{ clear: both; }}
     """
@@ -188,14 +183,6 @@ def _merge_on_template(content_bytes):
 # FORM 1 — หนังสือแจ้งขอถอนหลักประกันสัญญา
 # ══════════════════════════════════════════════════════════════════════
 def generate_bg_withdraw():
-    """
-    POST /generate_bg_withdraw
-    JSON fields:
-      contractId, contractName, signedDate, company
-      guaranteeNumber, guaranteeIssueDate, guaranteeValue
-      signerName, signerPosition, docNumber, docDate
-      entity: { name, address }
-    """
     try:
         data     = request.get_json(force=True) or {}
         cid      = str(data.get('contractId','')    or '')
@@ -268,15 +255,6 @@ def generate_bg_withdraw():
 # FORM 2 — หนังสือมอบอำนาจขอคืนหนังสือค้ำประกัน
 # ══════════════════════════════════════════════════════════════════════
 def generate_bg_poa():
-    """
-    POST /generate_bg_poa
-    JSON fields:
-      contractId, guaranteeNumber, guaranteeValue, company, docDate
-      entity: { name, address }
-      grantor: { name, idCard }
-      grantee: { name, idCard, address }
-      witnesses: [{ name }, { name }]
-    """
     try:
         data      = request.get_json(force=True) or {}
         cid       = str(data.get('contractId','')       or '')
