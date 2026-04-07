@@ -187,11 +187,45 @@ def _html_to_pdf(html):
     from weasyprint import HTML
     return HTML(string=html).write_pdf()
 
+# ── Entity Template Mapping ─────────────────────────────────────────
+# แต่ละ entity มี template PDF แยก (logo + watermark + header/footer)
+# ชื่อไฟล์: bg_template_{key}.pdf
+# Fallback: bg_template.pdf (SCM Tech เดิม)
+_ENTITY_TEMPLATE_MAP = {
+    'scm tech':   'bg_template_scmtech.pdf',
+    'scmtech':    'bg_template_scmtech.pdf',
+    'scm s':      'bg_template_scms.pdf',
+    'scms':       'bg_template_scms.pdf',
+    'scm c':      'bg_template_scmc.pdf',
+    'scmc':       'bg_template_scmc.pdf',
+    'cyber':      'bg_template_cyber.pdf',
+    'scm cyber':  'bg_template_cyber.pdf',
+    'bc':         'bg_template_bc.pdf',
+    'scm bc':     'bg_template_bc.pdf',
+    'business connect': 'bg_template_bc.pdf',
+    'b2b':        'bg_template_b2b.pdf',
+    'scm b2b':    'bg_template_b2b.pdf',
+    'group':      'bg_template_group.pdf',
+    'scm group':  'bg_template_group.pdf',
+    'holding':    'bg_template_group.pdf',
+    'fahcloud':   'bg_template_scmtech.pdf',  # ใช้ SCM Tech เป็น fallback
+}
+
+def _resolve_template(entity_key):
+    """แปลง entity key → template filename"""
+    key = str(entity_key or '').lower().strip()
+    return _ENTITY_TEMPLATE_MAP.get(key, 'bg_template.pdf')
+
 # ── Merge ทับ template ─────────────────────────────────────────────────
-def _merge_on_template(content_bytes):
-    """overlay content PDF บน bg_template.pdf"""
+def _merge_on_template(content_bytes, entity_key=''):
+    """overlay content PDF บน template ตาม entity"""
     base     = os.path.dirname(os.path.abspath(__file__))
-    tpl_path = os.path.join(base, 'bg_template.pdf')
+    tpl_name = _resolve_template(entity_key)
+    tpl_path = os.path.join(base, tpl_name)
+    # fallback ถ้าไฟล์ไม่พบ
+    if not os.path.exists(tpl_path):
+        logger.warning(f'Template ไม่พบ: {tpl_name} — ใช้ bg_template.pdf แทน')
+        tpl_path = os.path.join(base, 'bg_template.pdf')
     reader   = PdfReader(tpl_path)
     page     = reader.pages[0]
     page.merge_page(PdfReader(BytesIO(content_bytes)).pages[0])
@@ -220,7 +254,8 @@ def generate_bg_withdraw():
         doc_date = str(data.get('docDate','')       or '')
         entity   = data.get('entity') or {}
         ename    = entity.get('name', 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด')
-        eshort   = 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'
+        eshort   = ename  # ใช้ชื่อจริงของ entity แทน hardcode
+        entity_key = str(data.get('entityKey', '') or '')
 
         fonts = _font_b64()
         css   = _css(fonts)
@@ -270,7 +305,7 @@ def generate_bg_withdraw():
   <div class="clearfix"></div>
 </div></body></html>"""
 
-        final = _merge_on_template(_html_to_pdf(html))
+        final = _merge_on_template(_html_to_pdf(html), entity_key)
         return jsonify({
             'success':   True,
             'pdfBase64': base64.b64encode(final).decode(),
@@ -301,7 +336,8 @@ def generate_bg_poa():
             witnesses.append({})
 
         ename   = entity.get('name', 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด')
-        eshort  = 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'
+        eshort  = ename  # ใช้ชื่อจริงของ entity
+        entity_key = str(data.get('entityKey', '') or '')
         eaddr   = entity.get('address',
             'ตั้งอยู่เลขที่ 92/54-55 อาคารสาธรธานี 2 ชั้น 19 ถนนสาทรเหนือ '
             'แขวงสีลม เขตบางรัก กรุงเทพมหานคร')
@@ -365,7 +401,7 @@ def generate_bg_poa():
   <div class="stamp">ติดอากรแสตมป์ 10 บาท</div>
 </div></body></html>"""
 
-        final = _merge_on_template(_html_to_pdf(html))
+        final = _merge_on_template(_html_to_pdf(html), entity_key)
         return jsonify({
             'success':   True,
             'pdfBase64': base64.b64encode(final).decode(),
