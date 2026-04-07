@@ -233,6 +233,16 @@ def generate_bg_withdraw():
         p3 = ('ทางบริษัทฯ หวังเป็นอย่างยิ่งว่าจะได้รับความกรุณาจากท่าน '
               'และขอบคุณล่วงหน้ามา ณ ที่นี้')
 
+        # ★ ใช้ body text จาก popup ถ้ามี (user แก้ไขได้)
+        custom_body = str(data.get('withdrawBody', '') or '').strip()
+        if custom_body:
+            # แยก paragraph ด้วย newline คู่
+            paras = [p.strip() for p in custom_body.split('\n') if p.strip()]
+        else:
+            paras = [p1, p2, p3]
+
+        body_html = '\n'.join(f'  <p class="para">{p}</p>' for p in paras)
+
         html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>{css}</style></head>
 <body><div class="page">
@@ -247,9 +257,7 @@ def generate_bg_withdraw():
     <span class="subject-label">เรียน</span>
     <span class="subject-value">{co}</span>
   </div>
-  <p class="para">{p1}</p>
-  <p class="para">{p2}</p>
-  <p class="para">{p3}</p>
+{body_html}
   <div class="closing-area">
     <div class="closing">ขอแสดงความนับถือ</div>
     <div class="sig-block">
@@ -309,7 +317,7 @@ def generate_bg_poa():
         css   = _css(fonts)
 
         addr_part = f'ที่อยู่ {ge_addr} ' if ge_addr else ''
-        body = (f'โดยหนังสือฉบับนี้ ข้าพเจ้า {eshort} {eaddr} '
+        body_default = (f'โดยหนังสือฉบับนี้ ข้าพเจ้า {eshort} {eaddr} '
                 f'โดย {gr_name} บัตรประชาชนเลขที่ {gr_id} '
                 f'ผู้มีอำนาจกระทำนิติกรรมตามหนังสือรับรองของสำนักงานทะเบียน'
                 f'หุ้นส่วนบริษัทกลางกรมพัฒนาธุรกิจการค้า กระทรวงพาณิชย์ '
@@ -317,9 +325,18 @@ def generate_bg_poa():
                 f'{addr_part}'
                 f'เป็นผู้มีอำนาจดำเนินการรับคืนหนังสือค้ำประกันเลขที่ {bgn} '
                 f'มูลค่า {bgv} บาท กับ {co}')
-        p2 = ('การกระทำใดๆ ที่ผู้รับมอบอำนาจได้กระทำไป เปรียบเสมือนข้าพเจ้าได้กระทำทุกประการ '
+        p2_default = ('การกระทำใดๆ ที่ผู้รับมอบอำนาจได้กระทำไป เปรียบเสมือนข้าพเจ้าได้กระทำทุกประการ '
               'จึงลงลายมือชื่อไว้ต่อหน้าพยานทั้ง 2 คน และให้พยานลงลายมือชื่อไว้เป็นหลักฐาน '
               'พร้อมทั้งแนบสำเนาบัตรประจำตัวประชาชนของข้าพเจ้าและผู้รับมอบอำนาจมานี้ด้วย')
+
+        # ★ ใช้ body text จาก popup ถ้ามี (user แก้ไขได้)
+        custom_poa = str(data.get('poaBody', '') or '').strip()
+        if custom_poa:
+            poa_paras = [p.strip() for p in custom_poa.split('\n') if p.strip()]
+        else:
+            poa_paras = [body_default, p2_default]
+
+        poa_body_html = '\n'.join(f'  <p class="para">{p}</p>' for p in poa_paras)
 
         def sig_html(label, name):
             return f"""<div class="sig-right">
@@ -338,8 +355,7 @@ def generate_bg_poa():
   {'<div class="doc-number">เลขที่ ' + docnum + '</div>' if docnum else ''}
   <div class="title">หนังสือมอบอำนาจ</div>
   <div class="written-at">ทำที่ {ename}<br>วันที่ {doc_date}</div>
-  <p class="para">{body}</p>
-  <p class="para">{p2}</p>
+{poa_body_html}
   <div class="sig-col">
     {sig_html('ผู้มอบอำนาจ', gr_name)}
     {sig_html('ผู้รับมอบอำนาจ', ge_name)}
