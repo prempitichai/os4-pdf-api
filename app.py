@@ -41,6 +41,7 @@ from pypdf import PdfReader, PdfWriter
 from generate_lg_pettycash import generate_lg_pdf, generate_pettycash_pdf
 from generate_messenger import generate_messenger_pdf
 from generate_bg_withdraw import register_bg_withdraw_routes
+from generate_request_doc import register_request_doc_routes
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -961,6 +962,7 @@ def api_generate_messenger():
 
 # register BG Withdraw + POA routes
 register_bg_withdraw_routes(app)
+register_request_doc_routes(app)
 
 # ════════════════════════════════════════════════════════════
 # MAIN
