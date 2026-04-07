@@ -20,9 +20,7 @@ logger = logging.getLogger(__name__)
 
 # ── Number formatter ───────────────────────────────────────────────────
 def _fmt(v):
-    """แปลงตัวเลข → format xxx,xxx.xx
-    ★ FIX: format string เดิมมี comma เกิน → error → fallback เป็น raw
-    """
+    """แปลงตัวเลข → format xxx,xxx.xx"""
     if not v:
         return ''
     try:
@@ -32,6 +30,30 @@ def _fmt(v):
         return f'{n:,.2f}'
     except (ValueError, TypeError):
         return str(v)
+
+# ── Thai Date formatter ────────────────────────────────────────────────
+_TH_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
+              'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม']
+
+def _fmt_date_th(v):
+    """แปลง dd/mm/yyyy (พ.ศ.) → '28 กุมภาพันธ์ 2568' (แบบเต็ม)
+    ถ้า format ไม่ตรง → คืนค่าเดิม
+    """
+    if not v:
+        return ''
+    s = str(v).strip()
+    parts = s.split('/')
+    if len(parts) != 3:
+        return s
+    try:
+        d = int(parts[0])
+        m = int(parts[1])
+        y = parts[2]
+        if m < 1 or m > 12:
+            return s
+        return f'{d} {_TH_MONTHS[m-1]} {y}'
+    except (ValueError, IndexError):
+        return s
 
 # ── Font loader ────────────────────────────────────────────────────────
 def _font_b64():
@@ -190,7 +212,7 @@ def generate_bg_withdraw():
         cdate    = str(data.get('signedDate','')    or '')
         co       = str(data.get('company','')       or '')
         bgn      = str(data.get('guaranteeNumber','') or '')
-        bgd      = str(data.get('guaranteeIssueDate','') or '')
+        bgd      = _fmt_date_th(str(data.get('guaranteeIssueDate','') or ''))
         bgv      = _fmt(data.get('guaranteeValue',''))
         signer   = str(data.get('signerName','')    or '')
         spos     = str(data.get('signerPosition','Corporate Lawyers') or 'Corporate Lawyers')
@@ -258,6 +280,7 @@ def generate_bg_poa():
     try:
         data      = request.get_json(force=True) or {}
         cid       = str(data.get('contractId','')       or '')
+        docnum    = str(data.get('docNumber','')        or cid)
         bgn       = str(data.get('guaranteeNumber','')  or '')
         bgv       = _fmt(data.get('guaranteeValue',''))
         co        = str(data.get('company','')          or '')
@@ -312,7 +335,7 @@ def generate_bg_poa():
         html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>{css}</style></head>
 <body><div class="page">
-  {'<div class="doc-number">(' + cid + ')</div>' if cid else ''}
+  {'<div class="doc-number">เลขที่ ' + docnum + '</div>' if docnum else ''}
   <div class="title">หนังสือมอบอำนาจ</div>
   <div class="written-at">ทำที่ {ename}<br>วันที่ {doc_date}</div>
   <p class="para">{body}</p>
