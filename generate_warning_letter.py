@@ -1,33 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v1
+# VERSION: v2-s11
 """
 generate_warning_letter.py — หนังสือตักเตือนพนักงาน (Warning Letter)
 ═══════════════════════════════════════════════════════════════════
 ใช้ template_utils (WeasyPrint + entity template overlay) — 2 หน้า
 
-POST /generate_warning_letter
-  Input: {
-    entityKey,            — sheet name → entity template (logo+watermark)
-    docNumber,            — เลขที่หนังสือ เช่น "SCMT-w202506"
-    docDate,              — วันที่ เช่น "18 พฤศจิกายน พ.ศ.2568"
-    companyName,          — ชื่อบริษัท
-    companyAddress,       — ที่อยู่บริษัท
-    employeeName,         — ชื่อพนักงาน
-    employeeIdCard,       — เลขประจำตัวประชาชน
-    employeeCode,         — รหัสพนักงาน
-    employeePosition,     — ตำแหน่ง
-    employeeDepartment,   — แผนก
-    incidentDate,         — วันที่เกิดเหตุ
-    violationDetails,     — พฤติการณ์การกระทำผิด (textarea, หลายย่อหน้า)
-    punishmentType,       — ประเภทการลงโทษ: verbal / written / suspension
-    notificationMethod,   — วิธีการแจ้ง: posted / read_aloud / mail
-    employeeSignerName,   — ชื่อพนักงาน (ลงนาม)
-    companySignerName,    — ชื่อนายจ้าง/บริษัท (ลงนาม)
-    witness1Name,         — พยานคนที่ 1
-    witness2Name,         — พยานคนที่ 2
-  }
-  Output: { success, pdfBase64, fileName }
+★ S11 changes:
+  [6] companySignerName2 — กรรมการลงนามคนที่ 2 (ถ้ามี)
+  [7] employeeSignerName — ชื่อพนักงานแสดงในช่องลายเซ็น
+  sig grid: 3 แถว (พนักงาน|นายจ้าง1, นายจ้าง2 ถ้ามี, พยาน1|พยาน2)
 """
 
 import base64
@@ -71,19 +53,62 @@ def _build_warning_css():
     .wl-notice { font-size: 10pt; text-align: justify; line-height: 1.7; text-indent: 12mm; margin-bottom: 4mm; }
     .wl-note { font-size: 9pt; text-align: justify; line-height: 1.6; margin-bottom: 3mm; }
     .wl-note-title { font-weight: bold; }
-    /* ── ลายเซ็น 2x2 grid ── */
-    .wl-sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; margin-top: 10mm; }
-    .wl-sig-box { text-align: center; font-size: 10pt; }
+    /* ── ลายเซ็น — flex row (2 ช่อง/แถว) ── */
+    .wl-sig-row { display: flex; justify-content: space-between; margin-bottom: 4mm; }
+    .wl-sig-row-right { display: flex; justify-content: flex-end; margin-bottom: 4mm; }
+    .wl-sig-box { width: 48%; text-align: center; font-size: 10pt; }
     .wl-sig-line { border-bottom: 0.5pt solid #000; width: 60mm; margin: 0 auto 2mm auto; height: 12mm; }
     .wl-sig-label { font-size: 9pt; margin-bottom: 1mm; }
     .wl-sig-name { font-size: 10pt; }
     """
 
 
+def _build_sig_html(data):
+    """★ S11: สร้าง signature section — รองรับกรรมการ 2 + ชื่อพนักงานใน sig"""
+    e = _esc
+    emp_signer  = e(data.get('employeeSignerName', data.get('employeeName', '')))
+    co_signer   = e(data.get('companySignerName', ''))
+    co_signer2  = e(data.get('companySignerName2', ''))
+    witness1    = e(data.get('witness1Name', ''))
+    witness2    = e(data.get('witness2Name', ''))
+
+    def _box(label, name):
+        name_display = f'({name})' if name else '(..............................................)'
+        return f'''<div class="wl-sig-box">
+      <div style="font-size:9pt;margin-bottom:1mm">ลงชื่อ</div>
+      <div class="wl-sig-line"></div>
+      <div class="wl-sig-label">{label}</div>
+      <div class="wl-sig-name">{name_display}</div>
+    </div>'''
+
+    html = '<div style="margin-top:10mm">'
+
+    # แถว 1: พนักงาน | นายจ้าง/กรรมการ 1
+    html += '<div class="wl-sig-row">'
+    html += _box('พนักงาน', emp_signer)
+    html += _box('นายจ้าง/บริษัท', co_signer)
+    html += '</div>'
+
+    # แถว 2: กรรมการ 2 (ถ้ามี) — แสดงฝั่งขวาเท่านั้น
+    if co_signer2:
+        html += '<div class="wl-sig-row-right">'
+        html += _box('นายจ้าง/บริษัท (คนที่ 2)', co_signer2)
+        html += '</div>'
+
+    # แถว 3: พยาน 1 | พยาน 2
+    html += '<div class="wl-sig-row">'
+    html += _box('พยาน', witness1)
+    html += _box('พยาน', witness2)
+    html += '</div>'
+
+    html += '</div>'
+    return html
+
+
 def _build_warning_html(data):
     """สร้าง HTML หนังสือตักเตือน 2 หน้า"""
     e = _esc
-    
+
     doc_number  = e(data.get('docNumber', ''))
     doc_date    = e(data.get('docDate', ''))
     company     = e(data.get('companyName', 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'))
@@ -94,7 +119,7 @@ def _build_warning_html(data):
     emp_pos     = e(data.get('employeePosition', ''))
     emp_dept    = e(data.get('employeeDepartment', ''))
     incident_date = e(data.get('incidentDate', ''))
-    
+
     # เนื้อหาพฤติการณ์ — แบ่งย่อหน้า
     body_raw = str(data.get('violationDetails', '') or '').strip()
     if body_raw:
@@ -102,16 +127,14 @@ def _build_warning_html(data):
     else:
         body_paras = ['(กรุณาระบุพฤติการณ์การกระทำผิด)']
     body_html = '\n'.join(f'<p style="margin:0 0 2mm 0;text-indent:12mm">{e(p)}</p>' for p in body_paras)
-    
+
     punishment = data.get('punishmentType', 'written')
     notif_method = data.get('notificationMethod', 'read_aloud')
-    
-    emp_signer  = e(data.get('employeeSignerName', emp_name))
-    co_signer   = e(data.get('companySignerName', ''))
-    witness1    = e(data.get('witness1Name', ''))
-    witness2    = e(data.get('witness2Name', ''))
 
     css = build_css() + _build_warning_css()
+
+    # ★ S11: สร้าง sig HTML จาก _build_sig_html
+    sig_html = _build_sig_html(data)
 
     # ════════════════════════════════════════════
     # หน้า 1
@@ -168,32 +191,7 @@ def _build_warning_html(data):
   <div class="wl-checkbox-row"><span class="wl-checkbox">{_chk(notif_method == 'read_aloud')}</span> อ่านให้ผู้กระทำความผิดทราบ โดยมีพยานรับรู้การลงโทษในครั้งนี้และลงนามเป็นพยานอย่างน้อย 2 คน</div>
   <div class="wl-checkbox-row"><span class="wl-checkbox">{_chk(notif_method == 'mail')}</span> ส่งไปรษณีย์ลงทะเบียนตามที่อยู่ที่ติดต่อได้</div>
 
-  <div class="wl-sig-grid">
-    <div class="wl-sig-box">
-      <div style="font-size:9pt;margin-bottom:1mm">ลงชื่อ</div>
-      <div class="wl-sig-line"></div>
-      <div class="wl-sig-label">พนักงาน</div>
-      <div class="wl-sig-name">({emp_signer})</div>
-    </div>
-    <div class="wl-sig-box">
-      <div style="font-size:9pt;margin-bottom:1mm">ลงชื่อ</div>
-      <div class="wl-sig-line"></div>
-      <div class="wl-sig-label">นายจ้าง/บริษัท</div>
-      <div class="wl-sig-name">({co_signer})</div>
-    </div>
-    <div class="wl-sig-box">
-      <div style="font-size:9pt;margin-bottom:1mm">ลงชื่อ</div>
-      <div class="wl-sig-line"></div>
-      <div class="wl-sig-label">พยาน</div>
-      <div class="wl-sig-name">({witness1})</div>
-    </div>
-    <div class="wl-sig-box">
-      <div style="font-size:9pt;margin-bottom:1mm">ลงชื่อ</div>
-      <div class="wl-sig-line"></div>
-      <div class="wl-sig-label">พยาน</div>
-      <div class="wl-sig-name">({witness2})</div>
-    </div>
-  </div>
+  {sig_html}
 </div>"""
 
     return build_html(css, page1 + page2)
@@ -221,7 +219,6 @@ def _merge_multi_page(content_bytes, entity_key):
     writer = PdfWriter()
 
     for page in content_reader.pages:
-        # clone template page สำหรับทุกหน้า
         from copy import deepcopy
         bg = deepcopy(tpl_page)
         bg.merge_page(page)
