@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v2-s11
+# VERSION: v3-s12
 """
 generate_warning_letter.py — หนังสือตักเตือนพนักงาน (Warning Letter)
 ═══════════════════════════════════════════════════════════════════
-ใช้ template_utils (WeasyPrint + entity template overlay) — 2 หน้า
+ใช้ template_utils (WeasyPrint + entity template overlay)
 
-★ S11 changes:
-  [6] companySignerName2 — กรรมการลงนามคนที่ 2 (ถ้ามี)
-  [7] employeeSignerName — ชื่อพนักงานแสดงในช่องลายเซ็น
-  sig grid: 3 แถว (พนักงาน|นายจ้าง1, นายจ้าง2 ถ้ามี, พยาน1|พยาน2)
+★ S12 v3 changes (จากต้นฉบับ SCMCB.docx):
+  - Single page flow → ให้ WeasyPrint ตัดหน้าเอง (ไม่ hardcode 2 page)
+  - เนื้อหาทั้งหมดอยู่ใน flow เดียว (เหมือนต้นฉบับ)
+  - ลายเซ็น 3 แถว:
+    แถว 1: กรรมการ/นายจ้าง 1 | กรรมการ/นายจ้าง 2 (ถ้ามี)
+    แถว 2: พนักงาน | หัวหน้างาน
+    แถว 3: พยาน 1 | พยาน 2
+  - กรอบพฤติการณ์มี border
+  - checkbox ใช้ ☒/☐
+  - หมายเหตุ + วิธีแจ้ง อยู่ต่อจากข้อความตักเตือน (ไม่แยกหน้า)
 """
 
 import base64
@@ -37,63 +43,85 @@ def _chk(checked):
 
 
 def _build_warning_css():
-    """CSS เพิ่มเติมสำหรับหนังสือตักเตือน (นอกเหนือจาก build_css)"""
+    """CSS สำหรับหนังสือตักเตือน — ตรงกับต้นฉบับ"""
     return """
-    /* ── Warning Letter specific ── */
-    .wl-header { font-size: 9pt; color: #555; margin-bottom: 4mm; line-height: 1.5; }
-    .wl-title { font-size: 13pt; font-weight: bold; text-align: center; margin-bottom: 6mm; text-decoration: underline; }
-    .wl-indent { text-indent: 12mm; }
-    .wl-field-row { display: flex; gap: 2mm; margin-bottom: 2mm; font-size: 10pt; line-height: 1.6; }
+    /* ── Warning Letter v3 — single flow ── */
+    .wl-title { font-size: 14pt; font-weight: bold; text-align: center;
+                margin: 4mm 0 6mm; text-decoration: underline; }
+    .wl-intro { font-size: 10.5pt; text-align: justify; line-height: 1.7;
+                text-indent: 12mm; margin-bottom: 3mm; }
+    .wl-field-row { display: flex; gap: 2mm; margin-bottom: 2mm;
+                    font-size: 10.5pt; line-height: 1.6; flex-wrap: wrap; }
     .wl-field-label { font-weight: bold; white-space: nowrap; }
     .wl-field-value { border-bottom: 0.5pt dotted #999; flex: 1; min-width: 20mm; }
-    .wl-section-title { font-weight: bold; font-size: 10pt; margin-top: 4mm; margin-bottom: 2mm; text-decoration: underline; }
-    .wl-body { font-size: 10pt; text-align: justify; line-height: 1.7; margin-bottom: 4mm; border: 0.5pt solid #bbb; padding: 3mm 4mm; min-height: 40mm; }
-    .wl-checkbox-row { display: flex; align-items: center; gap: 3mm; font-size: 10pt; margin-bottom: 2mm; margin-left: 20mm; }
-    .wl-checkbox { font-size: 12pt; }
-    .wl-notice { font-size: 10pt; text-align: justify; line-height: 1.7; text-indent: 12mm; margin-bottom: 4mm; }
-    .wl-note { font-size: 9pt; text-align: justify; line-height: 1.6; margin-bottom: 3mm; }
-    .wl-note-title { font-weight: bold; }
-    /* ── ลายเซ็น — flex row (2 ช่อง/แถว) ── */
-    .wl-sig-row { display: flex; justify-content: space-between; margin-bottom: 4mm; }
-    .wl-sig-row-right { display: flex; justify-content: flex-end; margin-bottom: 4mm; }
+    .wl-section-title { font-weight: bold; font-size: 10.5pt;
+                        margin-top: 5mm; margin-bottom: 2mm; text-decoration: underline; }
+    .wl-body { font-size: 10.5pt; text-align: justify; line-height: 1.7;
+               margin-bottom: 4mm; border: 0.5pt solid #999;
+               padding: 3mm 4mm; min-height: 30mm; }
+    .wl-body p { margin: 0 0 2mm 0; text-indent: 12mm; }
+    .wl-notice { font-size: 10.5pt; text-align: justify; line-height: 1.7;
+                 text-indent: 12mm; margin-bottom: 3mm; }
+    .wl-note { font-size: 9.5pt; text-align: justify; line-height: 1.6;
+               margin-bottom: 3mm; }
+    .wl-note-title { font-weight: bold; text-decoration: underline; }
+    .wl-checkbox-row { display: flex; align-items: flex-start; gap: 3mm;
+                       font-size: 10.5pt; margin-bottom: 2mm; margin-left: 20mm; }
+    .wl-checkbox { font-size: 13pt; line-height: 1; }
+    /* ── ลายเซ็น grid — 2 ช่อง/แถว ── */
+    .wl-sig-grid { margin-top: 10mm; }
+    .wl-sig-row { display: flex; justify-content: space-between;
+                  margin-bottom: 6mm; }
     .wl-sig-box { width: 48%; text-align: center; font-size: 10pt; }
-    .wl-sig-line { border-bottom: 0.5pt solid #000; width: 60mm; margin: 0 auto 2mm auto; height: 12mm; }
-    .wl-sig-label { font-size: 9pt; margin-bottom: 1mm; }
+    .wl-sig-dots { border-bottom: 0.5pt dotted #333;
+                   width: 55mm; margin: 0 auto 1mm auto; height: 10mm; }
+    .wl-sig-label { font-size: 9.5pt; margin-bottom: 1mm; }
     .wl-sig-name { font-size: 10pt; }
     """
 
 
 def _build_sig_html(data):
-    """★ S11: สร้าง signature section — รองรับกรรมการ 2 + ชื่อพนักงานใน sig"""
+    """ลายเซ็น 3 แถว ตามต้นฉบับ:
+    แถว 1: กรรมการ/นายจ้าง 1 | กรรมการ/นายจ้าง 2 (ถ้ามี, ไม่มีก็ว่าง)
+    แถว 2: พนักงาน | หัวหน้างาน
+    แถว 3: พยาน 1 | พยาน 2
+    """
     e = _esc
-    emp_signer  = e(data.get('employeeSignerName', data.get('employeeName', '')))
-    co_signer   = e(data.get('companySignerName', ''))
+    co_signer1  = e(data.get('companySignerName', ''))
     co_signer2  = e(data.get('companySignerName2', ''))
+    emp_signer  = e(data.get('employeeSignerName', data.get('employeeName', '')))
+    supervisor  = e(data.get('supervisorName', ''))
     witness1    = e(data.get('witness1Name', ''))
     witness2    = e(data.get('witness2Name', ''))
 
     def _box(label, name):
-        name_display = f'({name})' if name else '(..............................................)'
+        name_display = f'({name})' if name else '(....................................................................)'
         return f'''<div class="wl-sig-box">
       <div style="font-size:9pt;margin-bottom:1mm">ลงชื่อ</div>
-      <div class="wl-sig-line"></div>
+      <div class="wl-sig-dots"></div>
       <div class="wl-sig-label">{label}</div>
       <div class="wl-sig-name">{name_display}</div>
     </div>'''
 
-    html = '<div style="margin-top:10mm">'
+    def _empty_box():
+        return '<div class="wl-sig-box"></div>'
 
-    # แถว 1: พนักงาน | นายจ้าง/กรรมการ 1
+    html = '<div class="wl-sig-grid">'
+
+    # แถว 1: กรรมการ/นายจ้าง 1 | กรรมการ/นายจ้าง 2
     html += '<div class="wl-sig-row">'
-    html += _box('พนักงาน', emp_signer)
-    html += _box('นายจ้าง/บริษัท', co_signer)
+    html += _box('นายจ้าง/บริษัท', co_signer1)
+    if co_signer2:
+        html += _box('นายจ้าง/บริษัท (คนที่ 2)', co_signer2)
+    else:
+        html += _empty_box()
     html += '</div>'
 
-    # แถว 2: กรรมการ 2 (ถ้ามี) — แสดงฝั่งขวาเท่านั้น
-    if co_signer2:
-        html += '<div class="wl-sig-row-right">'
-        html += _box('นายจ้าง/บริษัท (คนที่ 2)', co_signer2)
-        html += '</div>'
+    # แถว 2: พนักงาน | หัวหน้างาน
+    html += '<div class="wl-sig-row">'
+    html += _box('พนักงาน', emp_signer)
+    html += _box('หัวหน้างาน', supervisor)
+    html += '</div>'
 
     # แถว 3: พยาน 1 | พยาน 2
     html += '<div class="wl-sig-row">'
@@ -106,44 +134,50 @@ def _build_sig_html(data):
 
 
 def _build_warning_html(data):
-    """สร้าง HTML หนังสือตักเตือน 2 หน้า"""
+    """สร้าง HTML หนังสือตักเตือน — single flow ตามต้นฉบับ"""
     e = _esc
 
-    doc_number  = e(data.get('docNumber', ''))
-    doc_date    = e(data.get('docDate', ''))
-    company     = e(data.get('companyName', 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'))
-    company_addr = e(data.get('companyAddress', ''))
-    emp_name    = e(data.get('employeeName', ''))
-    emp_id      = e(data.get('employeeIdCard', ''))
-    emp_code    = e(data.get('employeeCode', ''))
-    emp_pos     = e(data.get('employeePosition', ''))
-    emp_dept    = e(data.get('employeeDepartment', ''))
+    doc_number    = e(data.get('docNumber', ''))
+    doc_date      = e(data.get('docDate', ''))
+    doc_month     = e(data.get('docMonth', ''))
+    doc_year      = e(data.get('docYear', ''))
+    company       = e(data.get('companyName', ''))
+    company_addr  = e(data.get('companyAddress', ''))
+    emp_name      = e(data.get('employeeName', ''))
+    emp_id        = e(data.get('employeeIdCard', ''))
+    emp_code      = e(data.get('employeeCode', ''))
+    emp_pos       = e(data.get('employeePosition', ''))
+    emp_dept      = e(data.get('employeeDepartment', ''))
     incident_date = e(data.get('incidentDate', ''))
 
-    # เนื้อหาพฤติการณ์ — แบ่งย่อหน้า
+    # วันที่: รองรับทั้ง docDate เป็น string เดียว หรือแยก date/month/year
+    if doc_date and not doc_month:
+        date_text = doc_date
+    else:
+        date_text = f"{doc_date} เดือน {doc_month} พ.ศ. {doc_year}"
+
+    # เนื้อหาพฤติการณ์
     body_raw = str(data.get('violationDetails', '') or '').strip()
     if body_raw:
         body_paras = [p.strip() for p in body_raw.split('\n') if p.strip()]
     else:
-        body_paras = ['(กรุณาระบุพฤติการณ์การกระทำผิด)']
-    body_html = '\n'.join(f'<p style="margin:0 0 2mm 0;text-indent:12mm">{e(p)}</p>' for p in body_paras)
+        body_paras = ['']
+    body_html = '\n'.join(f'<p>{e(p)}</p>' for p in body_paras)
 
-    punishment = data.get('punishmentType', 'written')
+    punishment   = data.get('punishmentType', 'written')
     notif_method = data.get('notificationMethod', 'read_aloud')
 
     css = build_css() + _build_warning_css()
-
-    # ★ S11: สร้าง sig HTML จาก _build_sig_html
     sig_html = _build_sig_html(data)
 
     # ════════════════════════════════════════════
-    # หน้า 1
+    # Single flow — ไม่แยก page div
     # ════════════════════════════════════════════
-    page1 = f"""<div class="page">
+    content = f"""<div class="page">
   <div class="doc-number">{doc_number}</div>
   <div class="wl-title">หนังสือตักเตือนพนักงาน</div>
 
-  <p class="wl-notice">หนังสือฉบับนี้ทำขึ้นเมื่อวันที่ {doc_date} ระหว่าง {company} {company_addr}</p>
+  <p class="wl-intro">หนังสือฉบับนี้ทำขึ้นเมื่อวันที่ {date_text} ระหว่าง {company} {company_addr}</p>
 
   <div class="wl-field-row">
     <span class="wl-field-label">นาย / นาง / นางสาว</span>
@@ -172,21 +206,14 @@ def _build_warning_html(data):
   <div class="wl-checkbox-row"><span class="wl-checkbox">{_chk(punishment == 'written')}</span> ตักเตือนเป็นลายลักษณ์อักษร</div>
   <div class="wl-checkbox-row"><span class="wl-checkbox">{_chk(punishment == 'suspension')}</span> พักงานโดยไม่ได้รับค่าจ้างและตักเตือนเป็นลายลักษณ์อักษร</div>
 
-  <p class="wl-notice">ขอตักเตือนผู้กระทำความผิดโดยห้ามมิให้กระทำความผิดเดิมซ้ำอีกมิฉะนั้นจะลงโทษในสถานหนักต่อไป แต่หากได้ลงโทษผู้กระทำความผิดโดยตักเตือนเป็นลายลักษณ์อักษรหรือพักงานโดยไม่ได้รับค่าจ้างและตักเตือนเป็นลายลักษณ์อักษรในครั้งนี้แล้ว ถ้าได้กระทำความผิดเดิมซ้ำอีกในคราวต่อไป <b>ภายในระยะเวลา 1 (หนึ่ง) ปี</b>นับแต่วันที่กระทำความผิดครั้งนี้ ผู้กระทำความผิดจะต้องถูกลงโทษด้วยการเลิกจ้างโดยไม่จ่ายค่าชดเชยใด ๆ ทั้งสิ้น เว้นแต่มีเหตุให้บรรเทาโทษซึ่งอาจจะลดโทษให้ได้ตามสมควร</p>
-</div>"""
-
-    # ════════════════════════════════════════════
-    # หน้า 2
-    # ════════════════════════════════════════════
-    page2 = f"""<div class="page" style="page-break-before:always">
-  <div class="doc-number">{doc_number}</div>
+  <p class="wl-notice" style="margin-top:4mm"><b>ขอตักเตือน</b>ผู้กระทำความผิดโดยห้ามมิให้กระทำความผิดเดิมซ้ำอีกมิฉะนั้นจะลงโทษในสถานหนักต่อไป แต่หากได้ลงโทษผู้กระทำความผิดโดยตักเตือนเป็นลายลักษณ์อักษรหรือพักงานโดยไม่ได้รับค่าจ้างและตักเตือนเป็นลายลักษณ์อักษรในครั้งนี้แล้ว ถ้าได้กระทำความผิดเดิมซ้ำอีกในคราวต่อไป <b>ภายในระยะเวลา 1 (หนึ่ง) ปี</b> นับแต่วันที่กระทำความผิดครั้งนี้ ผู้กระทำความผิดจะต้องถูกลงโทษด้วยการเลิกจ้างโดยไม่จ่ายค่าชดเชยใด ๆ ทั้งสิ้น เว้นแต่มีเหตุให้บรรเทาโทษซึ่งอาจจะลดโทษให้ได้ตามสมควร</p>
 
   <p class="wl-note"><span class="wl-note-title">หมายเหตุ</span> ในกรณีที่พนักงานที่ถูกลงโทษไม่ยินยอมลงนามในหนังสือตักเตือนดังกล่าวข้างต้นศาลฎีกาแผนกคดีแรงงานได้เคยวินิจฉัยว่าหากนายจ้างได้แจ้งพนักงานที่ถูกลงโทษโดยชอบด้วยกฎหมายแล้วให้ถือว่าหนังสือตักเตือนมีผลสมบูรณ์</p>
 
-  <p class="wl-note">— หากพนักงานไม่รับหนังสือเตือน บริษัทจะจัดส่งหนังสือเตือนไปยังภูมิลำเนา และ/หรือ อีเมลและ/หรือ ไลน์แจ้งหนังสือเตือน และให้ถือว่าท่านรับหนังสือเตือนดังกล่าวโดยชอบแล้ว</p>
+  <p class="wl-note">หากพนักงานไม่รับหนังสือเตือน บริษัทจะจัดส่งหนังสือเตือนไปยังภูมิลำเนา และ/หรือ อีเมล และ/หรือ ไลน์แจ้งหนังสือเตือน และให้ถือว่าท่านรับหนังสือเตือนดังกล่าวโดยชอบแล้ว</p>
 
   <p class="wl-section-title">วิธีการแจ้ง</p>
-  <p style="font-size:10pt;margin-bottom:2mm">ด้วยวิธีใดวิธีหนึ่ง ดังต่อไปนี้</p>
+  <p style="font-size:10.5pt;margin-bottom:2mm">ด้วยวิธีใดวิธีหนึ่ง ดังต่อไปนี้</p>
   <div class="wl-checkbox-row"><span class="wl-checkbox">{_chk(notif_method == 'posted')}</span> ติดประกาศให้ทราบในสถานประกอบการ</div>
   <div class="wl-checkbox-row"><span class="wl-checkbox">{_chk(notif_method == 'read_aloud')}</span> อ่านให้ผู้กระทำความผิดทราบ โดยมีพยานรับรู้การลงโทษในครั้งนี้และลงนามเป็นพยานอย่างน้อย 2 คน</div>
   <div class="wl-checkbox-row"><span class="wl-checkbox">{_chk(notif_method == 'mail')}</span> ส่งไปรษณีย์ลงทะเบียนตามที่อยู่ที่ติดต่อได้</div>
@@ -194,7 +221,7 @@ def _build_warning_html(data):
   {sig_html}
 </div>"""
 
-    return build_html(css, page1 + page2)
+    return build_html(css, content)
 
 
 def _merge_multi_page(content_bytes, entity_key):
