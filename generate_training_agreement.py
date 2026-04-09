@@ -65,8 +65,11 @@ def _build_training_css():
     }
     .page { width: auto; min-height: auto; padding: 0; }
     .doc-number { font-size: 10pt; margin-bottom: 4mm; color: #333; }
-    .ta-frame { border: 1.2pt solid #1a1a1a; padding: 5mm 6mm; }
-    .ta-title { font-size: 13pt; font-weight: bold; text-align: center; margin: 0 0 4mm; text-decoration: underline; letter-spacing: 0.5pt; }
+    .ta-tbl { width: 100%; border-collapse: collapse; border: 1.2pt solid #1a1a1a; }
+    .ta-tbl td { border: 0.8pt solid #444; padding: 0; vertical-align: top; }
+    .ta-hdr { background: #f0f4f8; text-align: center; padding: 6mm 8mm 5mm; }
+    .ta-content { padding: 5mm 8mm 5mm; font-size: 9.5pt; line-height: 1.5; }
+    .ta-title { font-size: 13pt; font-weight: bold; text-decoration: underline; letter-spacing: 0.5pt; color: #1a1a1a; }
     .ta-course { font-size: 9.5pt; margin-bottom: 3mm; padding: 2mm 0; border-bottom: 0.5pt solid #ddd; }
     .ta-course b { color: #222; }
     .ta-intro { font-size: 9.5pt; text-align: left; line-height: 1.5; text-indent: 10mm; margin-bottom: 2.5mm; word-wrap: break-word; }
@@ -82,9 +85,8 @@ def _build_training_css():
     .ta-sub-item .n { flex-shrink: 0; width: 8mm; text-align: center; font-weight: bold; }
     .ta-sub-item .t { flex: 1; }
     .ta-closing { font-size: 9.5pt; text-align: left; line-height: 1.5; text-indent: 10mm; margin-bottom: 2.5mm; word-wrap: break-word; }
-    /* ★ v7: sig ใช้ table เหมือน WL */
-    .ta-sig-tbl { width: 100%; border-collapse: collapse; margin-top: 8mm; border-top: 0.5pt solid #ccc; }
-    .ta-sig-tbl td { padding: 4mm 3mm; text-align: center; vertical-align: top; width: 50%; border: none; }
+    /* ★ v7: sig ใช้ tr rows ใน ta-tbl เหมือน WL */
+    .ta-sig td { padding: 4mm 3mm; text-align: center; vertical-align: top; width: 50%; }
     .ta-sig-line { border-bottom: 0.5pt dotted #333; width: 50mm; margin: 0 auto 1.5mm; height: 10mm; }
     .ta-sig-lbl { font-size: 9.5pt; color: #333; }
     .ta-sig-nm { font-size: 10pt; }
@@ -108,12 +110,11 @@ def _build_sig_html(data):
     sup = data.get('supervisorName', '')
     w1  = data.get('witness1Name', '')
     w2  = data.get('witness2Name', '')
-    h = '<table class="ta-sig-tbl">'
-    h += '<tr>' + _sig_cell('นายจ้าง/บริษัทฯ', co1)
+    # ★ v7-s15: ใช้ <tr> rows ตรงๆ (อยู่ใน ta-tbl แล้ว)
+    h = '<tr class="ta-sig">' + _sig_cell('นายจ้าง/บริษัทฯ', co1)
     h += _sig_cell('นายจ้าง/บริษัทฯ (คนที่ 2)', co2) if co2 else '<td></td>'
-    h += '</tr><tr>' + _sig_cell('พนักงาน', emp) + _sig_cell('หัวหน้างาน', sup)
-    h += '</tr><tr>' + _sig_cell('พยาน', w1) + _sig_cell('พยาน', w2) + '</tr>'
-    h += '</table>'
+    h += '</tr><tr class="ta-sig">' + _sig_cell('พนักงาน', emp) + _sig_cell('หัวหน้างาน', sup)
+    h += '</tr><tr class="ta-sig">' + _sig_cell('พยาน', w1) + _sig_cell('พยาน', w2) + '</tr>'
     return h
 
 
@@ -147,8 +148,11 @@ def _build_training_html(data):
 
     content = f"""<div class="page">
   <div class="doc-number">{doc_number}</div>
-  <div class="ta-frame">
-    <div class="ta-title">สัญญาเข้าศึกษา / ฝึกอบรม / สอบ</div>
+  <table class="ta-tbl">
+    <tr><td colspan="2" class="ta-hdr">
+      <div class="ta-title">สัญญาเข้าศึกษา / ฝึกอบรม / สอบ</div>
+    </td></tr>
+    <tr><td colspan="2" class="ta-content">
     <div class="ta-course"><b>หลักสูตร :</b> {course}</div>
     <p class="ta-intro">สัญญาฉบับนี้ทำขึ้นเมื่อวันที่ {c_date} เดือน {c_month} พ.ศ. {c_year} ระหว่าง {company} {company_addr} ซึ่งต่อไปนี้เรียกว่า <b>"บริษัทฯ"</b> ฝ่ายหนึ่งกับ</p>
     <table class="ta-fields">
@@ -169,13 +173,20 @@ def _build_training_html(data):
     </div>
     <p class="ta-cl"><span class="ta-cl-t">ข้อ 5.</span> ในช่วงระหว่างที่ยังศึกษา / ฝึกอบรม / สอบ ไม่จบหลักสูตร หากพนักงานกระทำความผิดใด ๆ เป็นเหตุให้ได้รับโทษจำคุกหรือถูกเนรเทศ หรือได้รับโทษอื่นใดตามกฎหมาย ทำให้พนักงานไม่สามารถเข้ารับการศึกษา / ฝึกอบรมครบตามกำหนดระยะเวลาได้ พนักงานยินยอมชดใช้ค่าเสียหายให้แก่บริษัทฯ เท่ากับจำนวนที่ระบุไว้ในข้อ 4.</p>
     <p class="ta-cl"><span class="ta-cl-t">ข้อ 6.</span> ในระหว่างที่พนักงานทำงานให้แก่บริษัทฯ ตามกำหนดระยะเวลาในข้อ 3. หากพนักงานกระทำการใด ๆ อันฝ่าฝืนกฎระเบียบ ประกาศ คำสั่ง หรือข้อบังคับของบริษัทฯ อันเป็นผลให้พนักงานถูกลงโทษทางวินัยถึงขั้นให้ออก ปลดออก แล้วแต่กรณี ให้ถือว่าพนักงานไม่สามารถทำงานให้แก่บริษัทฯ ได้และยินยอมชดใช้ค่าเสียหายหรือค่าตอบแทนให้แก่บริษัทฯ ตามจำนวนที่ระบุไว้ในข้อ 4.</p>
+    </td></tr>
+  </table>
+  <div style="page-break-before:always"></div>
+  <div class="doc-number">{doc_number}</div>
+  <table class="ta-tbl">
+    <tr><td colspan="2" class="ta-content" style="padding-top:8mm">
     <p class="ta-cl"><span class="ta-cl-t">ข้อ 7.</span> บริษัทฯ จะจ่ายเงินเดือนให้แก่พนักงานในช่วงระหว่างระยะเวลาที่พนักงานศึกษา / ฝึกอบรม / สอบ ตามที่ได้ตกลงกันและตามระเบียบของบริษัทฯ</p>
     <p class="ta-cl"><span class="ta-cl-t">ข้อ 8.</span> ในกรณีที่บริษัทฯ ได้ส่งพนักงานไปศึกษา / ฝึกอบรม / สอบตามหลักสูตร หรือค่าใช้จ่ายใด ๆ ที่เกิดขึ้นก็ตาม หากพนักงานไม่ดำเนินการไปศึกษา / ฝึกอบรม / สอบ ตามหลักสูตร ที่ตกลงไว้ ไม่ว่าด้วยเหตุใด ๆ ก็ตาม พนักงานยินยอมชดใช้ค่าใช้จ่ายต่าง ๆ ทั้งหมดที่ได้ระบุไว้ในสัญญานี้ โดยพนักงานตกลงชำระให้แก่บริษัทฯ ภายใน 30 (สามสิบ) วัน นับตั้งแต่วันที่พนักงานไม่ได้ปฏิบัติตามที่ตกลงไว้</p>
     <p class="ta-cl"><span class="ta-cl-t">ข้อ 9.</span> พนักงานยินยอมให้บริษัทฯ หักค่าชดใช้ใด ๆ ที่พนักงานทำผิดสัญญาและจากจำนวนเงินใด ๆ ที่พนักงานได้ผิดนัดชำระกับบริษัทฯ จากค่าจ้างที่พนักงานได้รับจากบริษัทฯ</p>
     <p class="ta-closing">อนึ่งการที่บริษัทฯ ไม่ใช้สิทธิหรือประวิงการใช้สิทธิ หรืออำนาจใด ๆ ตามที่ระบุไว้ในสัญญานี้ในครั้งหนึ่งครั้งใด ไม่ถือว่าเป็นการที่บริษัทฯ สละสิทธิในเรื่องดังกล่าวต่อไป</p>
     <p class="ta-closing">สัญญานี้ทำขึ้น 2 (สอง) ฉบับ คู่สัญญาทั้งสองฝ่ายได้อ่านและเข้าใจข้อความและเงื่อนไขต่าง ๆ แห่งสัญญาฉบับนี้โดยละเอียดตลอดครบถ้วนแล้ว เห็นว่าถูกต้องตามเจตนาทุกประการเพื่อเป็นหลักฐานจึงได้ลงลายมือชื่อ และประทับตรา (ถ้ามี) ไว้เป็นสำคัญและคู่สัญญาต่างยึดถือไว้ฝ่ายละหนึ่งฉบับ</p>
+    </td></tr>
     {sig_html}
-  </div>
+  </table>
 </div>"""
     return build_html(css, content)
 
@@ -208,19 +219,34 @@ def _merge_multi_page(content_bytes, entity_key):
         tpl_reader = PdfReader(tpl_path)
         bg = tpl_reader.pages[0]
 
-        fonts = bg.get("/Resources", {}).get("/Font", {})
-        for key in list(fonts.keys()):
-            font_obj = fonts[key].get_object()
-            base_font = str(font_obj.get("/BaseFont", ""))
-            if "THSarabunNew" in base_font:
-                new_bf = base_font.replace("THSarabunNew", "THSarabunNewTPL")
-                font_obj[NameObject("/BaseFont")] = NameObject("/" + new_bf.lstrip("/"))
-                if "/FontDescriptor" in font_obj:
-                    fd = font_obj["/FontDescriptor"].get_object()
-                    fd_name = str(fd.get("/FontName", ""))
-                    if "THSarabunNew" in fd_name:
-                        new_fn = fd_name.replace("THSarabunNew", "THSarabunNewTPL")
-                        fd[NameObject("/FontName")] = NameObject("/" + new_fn.lstrip("/"))
+        # ★ v7-s15 FIX: rename font ใน CONTENT (ไม่ใช่ template)
+        content_fonts = page.get("/Resources", {}).get("/Font", {})
+        for key in list(content_fonts.keys()):
+            try:
+                font_obj = content_fonts[key].get_object()
+                base_font = str(font_obj.get("/BaseFont", ""))
+                if "THSarabunNew" in base_font and "CTN" not in base_font:
+                    new_bf = base_font.replace("THSarabunNew", "THSarabunNewCTN")
+                    font_obj[NameObject("/BaseFont")] = NameObject("/" + new_bf.lstrip("/"))
+                    if "/DescendantFonts" in font_obj:
+                        desc_arr = font_obj["/DescendantFonts"]
+                        for desc_ref in desc_arr:
+                            desc = desc_ref.get_object()
+                            dbf = str(desc.get("/BaseFont", ""))
+                            if "THSarabunNew" in dbf and "CTN" not in dbf:
+                                desc[NameObject("/BaseFont")] = NameObject("/" + dbf.replace("THSarabunNew", "THSarabunNewCTN").lstrip("/"))
+                            if "/FontDescriptor" in desc:
+                                fd = desc["/FontDescriptor"].get_object()
+                                fn = str(fd.get("/FontName", ""))
+                                if "THSarabunNew" in fn and "CTN" not in fn:
+                                    fd[NameObject("/FontName")] = NameObject("/" + fn.replace("THSarabunNew", "THSarabunNewCTN").lstrip("/"))
+                    if "/FontDescriptor" in font_obj:
+                        fd = font_obj["/FontDescriptor"].get_object()
+                        fn = str(fd.get("/FontName", ""))
+                        if "THSarabunNew" in fn and "CTN" not in fn:
+                            fd[NameObject("/FontName")] = NameObject("/" + fn.replace("THSarabunNew", "THSarabunNewCTN").lstrip("/"))
+            except Exception:
+                pass
 
         bg.merge_page(page)
         writer.add_page(bg)
