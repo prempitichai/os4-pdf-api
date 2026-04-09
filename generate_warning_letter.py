@@ -69,19 +69,19 @@ def _build_warning_css():
     .doc-number { font-size: 10pt; margin-bottom: 4mm; color: #333; }
     .wl-tbl { width: 100%; border-collapse: collapse; border: 1.2pt solid #1a1a1a; }
     .wl-tbl td { border: 0.8pt solid #444; padding: 0; vertical-align: top; }
-    .wl-hdr { background: #f0f4f8; text-align: center; padding: 6mm 8mm 5mm; }
+    .wl-hdr { background: #f0f4f8; text-align: center; padding: 7mm 10mm 6mm; }
     .wl-hdr-title { font-size: 14pt; font-weight: bold; text-decoration: underline; letter-spacing: 0.5pt; color: #1a1a1a; }
-    .wl-content { padding: 5mm 8mm 5mm; font-size: 10.5pt; line-height: 1.55; }
+    .wl-content { padding: 6mm 10mm 6mm; font-size: 10.5pt; line-height: 1.55; }
     .wl-fields { width: 100%; border-collapse: collapse; margin-bottom: 3mm; font-size: 10.5pt; }
     .wl-fields td { padding: 1.5mm 2mm; border: none; vertical-align: bottom; }
     .wl-fields .lbl { font-weight: bold; white-space: nowrap; color: #222; }
     .wl-fields .val { border-bottom: 0.6pt dotted #888; min-width: 18mm; }
     .wl-sec { font-weight: bold; text-decoration: underline; margin: 4mm 0 2.5mm; font-size: 10.5pt; }
-    .wl-vbox { border: 1pt solid #999; border-radius: 2pt; padding: 3mm 4mm; margin-bottom: 3.5mm; min-height: 25mm; background: #fafafa; }
+    .wl-vbox { border: 1pt solid #999; border-radius: 2pt; padding: 4mm 6mm; margin-bottom: 4mm; min-height: 25mm; background: #fafafa; }
     .wl-vbox p { margin: 0 0 1.5mm; text-indent: 10mm; text-align: left; line-height: 1.6; font-size: 10.5pt; word-wrap: break-word; }
-    .wl-p { text-align: left; text-indent: 10mm; line-height: 1.6; margin-bottom: 2.5mm; font-size: 10.5pt; word-wrap: break-word; }
-    .wl-p-ul { text-align: left; text-indent: 10mm; line-height: 1.6; margin-bottom: 2.5mm; text-decoration: underline; font-size: 10.5pt; word-wrap: break-word; }
-    .wl-note-box { background: #f7f7f7; border-left: 2pt solid #aaa; padding: 3mm 4mm; margin: 3mm 0; font-size: 9.5pt; line-height: 1.5; word-wrap: break-word; }
+    .wl-p { text-align: left; text-indent: 10mm; line-height: 1.6; margin-bottom: 3mm; font-size: 10.5pt; word-wrap: break-word; }
+    .wl-p-ul { text-align: left; text-indent: 10mm; line-height: 1.6; margin-bottom: 3mm; text-decoration: underline; font-size: 10.5pt; word-wrap: break-word; }
+    .wl-note-box { background: #f7f7f7; border-left: 2pt solid #aaa; padding: 4mm 6mm; margin: 4mm 0; font-size: 9.5pt; line-height: 1.5; word-wrap: break-word; }
     .wl-note-title { font-weight: bold; text-decoration: underline; }
     .wl-chk { display: flex; align-items: flex-start; gap: 3mm; margin: 1.5mm 0 1.5mm 18mm; font-size: 10.5pt; line-height: 1.45; }
     .wl-chk-icon { font-size: 13pt; line-height: 1; flex-shrink: 0; }
