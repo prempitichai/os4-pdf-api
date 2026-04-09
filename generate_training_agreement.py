@@ -168,11 +168,10 @@ def _build_training_html(data):
 def _merge_multi_page(content_bytes, entity_key):
     """Overlay ทุกหน้าของ content บน entity template
 
-    ★ S13 FIX: rename THSarabunNew ใน template → THSarabunNewTPL
-    ก่อน merge เพื่อป้องกัน font name conflict กับ WeasyPrint content
+    ★ S13 FIX-1: rename THSarabunNew → THSarabunNewTPL ก่อน merge
+    ★ S13 FIX-2: อ่าน template ใหม่ทุกหน้า แทน deepcopy
     """
     from io import BytesIO
-    from copy import deepcopy
     from pypdf import PdfReader, PdfWriter
     from pypdf.generic import NameObject
     from template_utils import resolve_template
@@ -188,15 +187,15 @@ def _merge_multi_page(content_bytes, entity_key):
         logger.warning(f'Template ไม่พบ: {tpl_name} — คืน content เปล่า')
         return content_bytes
 
-    tpl_reader = PdfReader(tpl_path)
-    tpl_page = tpl_reader.pages[0]
     content_reader = PdfReader(BytesIO(content_bytes))
     writer = PdfWriter()
 
     for page in content_reader.pages:
-        bg = deepcopy(tpl_page)
+        # ★ FIX-2: อ่าน template ใหม่ทุกหน้า
+        tpl_reader = PdfReader(tpl_path)
+        bg = tpl_reader.pages[0]
 
-        # ★ S13: Rename THSarabunNew → THSarabunNewTPL ใน template
+        # ★ FIX-1: Rename THSarabunNew → THSarabunNewTPL
         fonts = bg.get("/Resources", {}).get("/Font", {})
         for key in list(fonts.keys()):
             font_obj = fonts[key].get_object()
