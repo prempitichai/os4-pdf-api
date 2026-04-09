@@ -177,15 +177,12 @@ def _build_warning_html(data):
 def _merge_multi_page(content_bytes, entity_key):
     """Overlay ทุกหน้าของ content บน entity template
 
-    ★ S13 FIX: rename THSarabunNew ใน template → THSarabunNewTPL
-    ก่อน merge เพื่อป้องกัน font name conflict กับ WeasyPrint content
-
-    สาเหตุ: template ใช้ THSarabunNew subset (MacRoman encoding)
-    WeasyPrint ใช้ THSarabunNew full (CIDFont, Identity-H encoding)
-    ชื่อ font เดียวกันแต่ encoding ต่าง → PDF viewer ใช้ font ผิด → garbled
+    ★ S13 FIX-1: rename THSarabunNew → THSarabunNewTPL ก่อน merge
+      ป้องกัน font name conflict (MacRoman subset vs CIDFont Identity-H)
+    ★ S13 FIX-2: อ่าน template ใหม่ทุกหน้า (PdfReader) แทน deepcopy
+      แก้ปัญหาหน้า 2+ แสดงซ้ำหน้า 1 (deepcopy share indirect objects)
     """
     from io import BytesIO
-    from copy import deepcopy
     from pypdf import PdfReader, PdfWriter
     from pypdf.generic import NameObject
     from template_utils import resolve_template
@@ -201,15 +198,17 @@ def _merge_multi_page(content_bytes, entity_key):
         logger.warning(f'Template ไม่พบ: {tpl_name} — คืน content เปล่า')
         return content_bytes
 
-    tpl_reader = PdfReader(tpl_path)
-    tpl_page = tpl_reader.pages[0]
     content_reader = PdfReader(BytesIO(content_bytes))
     writer = PdfWriter()
 
     for page in content_reader.pages:
-        bg = deepcopy(tpl_page)
+        # ★ FIX-2: อ่าน template ใหม่ทุกหน้า — ไม่ใช้ deepcopy
+        #   deepcopy share indirect objects → ทุกหน้าแสดงหน้าสุดท้าย
+        tpl_reader = PdfReader(tpl_path)
+        bg = tpl_reader.pages[0]
 
-        # ★ S13: Rename THSarabunNew → THSarabunNewTPL ใน template
+        # ★ FIX-1: Rename THSarabunNew → THSarabunNewTPL ใน template
+        #   ป้องกัน font conflict กับ WeasyPrint content
         fonts = bg.get("/Resources", {}).get("/Font", {})
         for key in list(fonts.keys()):
             font_obj = fonts[key].get_object()
