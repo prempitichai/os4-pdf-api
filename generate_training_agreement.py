@@ -67,8 +67,8 @@ def _build_training_css():
     .doc-number { font-size: 10pt; margin-bottom: 4mm; color: #333; }
     .ta-tbl { width: 100%; border-collapse: collapse; border: 1.2pt solid #1a1a1a; }
     .ta-tbl td { border: 0.8pt solid #444; padding: 0; vertical-align: top; }
-    .ta-hdr { background: #f0f4f8; text-align: center; padding: 6mm 8mm 5mm; }
-    .ta-content { padding: 5mm 8mm 5mm; font-size: 9.5pt; line-height: 1.5; }
+    .ta-hdr { background: #f0f4f8; text-align: center; padding: 7mm 10mm 6mm; }
+    .ta-content { padding: 6mm 10mm 6mm; font-size: 9.5pt; line-height: 1.5; }
     .ta-title { font-size: 13pt; font-weight: bold; text-decoration: underline; letter-spacing: 0.5pt; color: #1a1a1a; }
     .ta-course { font-size: 9.5pt; margin-bottom: 3mm; padding: 2mm 0; border-bottom: 0.5pt solid #ddd; }
     .ta-course b { color: #222; }
@@ -78,13 +78,13 @@ def _build_training_css():
     .ta-fields .lbl { font-weight: bold; white-space: nowrap; color: #222; }
     .ta-fields .val { border-bottom: 0.5pt dotted #888; min-width: 15mm; }
     .ta-parties { font-weight: bold; text-decoration: underline; font-size: 9.5pt; margin: 3mm 0 2mm; }
-    .ta-cl { font-size: 9.5pt; text-align: left; line-height: 1.5; margin-bottom: 2.5mm; word-wrap: break-word; }
+    .ta-cl { font-size: 9.5pt; text-align: left; line-height: 1.5; margin-bottom: 3mm; word-wrap: break-word; }
     .ta-cl-t { font-weight: bold; text-indent: 10mm; }
-    .ta-sub { margin-left: 14mm; margin-bottom: 2mm; font-size: 9.5pt; line-height: 1.5; text-align: left; word-wrap: break-word; }
-    .ta-sub-item { display: flex; gap: 2mm; margin-bottom: 1.5mm; }
+    .ta-sub { margin-left: 14mm; margin-bottom: 3mm; font-size: 9.5pt; line-height: 1.5; text-align: left; word-wrap: break-word; }
+    .ta-sub-item { display: flex; gap: 2mm; margin-bottom: 2mm; }
     .ta-sub-item .n { flex-shrink: 0; width: 8mm; text-align: center; font-weight: bold; }
     .ta-sub-item .t { flex: 1; }
-    .ta-closing { font-size: 9.5pt; text-align: left; line-height: 1.5; text-indent: 10mm; margin-bottom: 2.5mm; word-wrap: break-word; }
+    .ta-closing { font-size: 9.5pt; text-align: left; line-height: 1.5; text-indent: 10mm; margin-bottom: 3mm; word-wrap: break-word; }
     /* ★ v7: sig ใช้ tr rows ใน ta-tbl เหมือน WL */
     .ta-sig td { padding: 4mm 3mm; text-align: center; vertical-align: top; width: 50%; }
     .ta-sig-line { border-bottom: 0.5pt dotted #333; width: 50mm; margin: 0 auto 1.5mm; height: 10mm; }
@@ -178,7 +178,7 @@ def _build_training_html(data):
   <div style="page-break-before:always"></div>
   <div class="doc-number">{doc_number}</div>
   <table class="ta-tbl">
-    <tr><td colspan="2" class="ta-content" style="padding-top:8mm">
+    <tr><td colspan="2" class="ta-content" style="padding-top:10mm">
     <p class="ta-cl"><span class="ta-cl-t">ข้อ 7.</span> บริษัทฯ จะจ่ายเงินเดือนให้แก่พนักงานในช่วงระหว่างระยะเวลาที่พนักงานศึกษา / ฝึกอบรม / สอบ ตามที่ได้ตกลงกันและตามระเบียบของบริษัทฯ</p>
     <p class="ta-cl"><span class="ta-cl-t">ข้อ 8.</span> ในกรณีที่บริษัทฯ ได้ส่งพนักงานไปศึกษา / ฝึกอบรม / สอบตามหลักสูตร หรือค่าใช้จ่ายใด ๆ ที่เกิดขึ้นก็ตาม หากพนักงานไม่ดำเนินการไปศึกษา / ฝึกอบรม / สอบ ตามหลักสูตร ที่ตกลงไว้ ไม่ว่าด้วยเหตุใด ๆ ก็ตาม พนักงานยินยอมชดใช้ค่าใช้จ่ายต่าง ๆ ทั้งหมดที่ได้ระบุไว้ในสัญญานี้ โดยพนักงานตกลงชำระให้แก่บริษัทฯ ภายใน 30 (สามสิบ) วัน นับตั้งแต่วันที่พนักงานไม่ได้ปฏิบัติตามที่ตกลงไว้</p>
     <p class="ta-cl"><span class="ta-cl-t">ข้อ 9.</span> พนักงานยินยอมให้บริษัทฯ หักค่าชดใช้ใด ๆ ที่พนักงานทำผิดสัญญาและจากจำนวนเงินใด ๆ ที่พนักงานได้ผิดนัดชำระกับบริษัทฯ จากค่าจ้างที่พนักงานได้รับจากบริษัทฯ</p>
