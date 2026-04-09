@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v5-s13
+# VERSION: v6-s14
 """
 generate_training_agreement.py — สัญญาเข้าศึกษา / ฝึกอบรม / สอบ
 ═══════════════════════════════════════════════════════════════════
 ใช้ template_utils (WeasyPrint + entity template overlay)
 
-★ S13 v5 changes:
-  - [FIX] _merge_multi_page() → rename THSarabunNew ใน template
-    เป็น THSarabunNewTPL ก่อน merge เพื่อป้องกัน font conflict
-  - ไม่ต้องสร้าง clean template / แก้ template_utils.py
+★ S14 v6 changes:
+  - [FIX] เพิ่ม @font-face embed THSarabunNew ใน CSS — แก้ body text garbled
+  - [FIX] ลด @page margin-top 30mm → 17mm — doc-number ชิด logo template
+  - [FIX] ตรวจ spacing, line-height, padding ทั้งฉบับ
+  - [FIX] ไม่ใช้ build_css() แล้ว — ใช้ _build_training_css() ที่มี @font-face ครบ
   - ไม่มี breaking changes
 
-★ S12 v4:
-  - Layout กรอบ outer frame, font 9.5pt, ข้อ 1-9
-  - ลายเซ็น 3 แถว (กรรมการ1-2 / พนักงาน+หัวหน้า / พยาน1-2)
+★ S13 v5:  Font rename fix + page duplication fix
+★ S12 v4:  Layout กรอบ outer frame, font 9.5pt, ข้อ 1-9, sig 3 แถว
 """
 
 import base64
 import logging
 from flask import request, jsonify
 from template_utils import (
-    merge_on_template, html_to_pdf, build_css, build_html
+    merge_on_template, html_to_pdf, build_css, build_html,
+    font_b64
 )
 
 logger = logging.getLogger(__name__)
@@ -37,33 +38,61 @@ def _esc(s):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# CSS
+# CSS — ★ v6: เพิ่ม @font-face embed + ลด margin-top 30→17mm
 # ══════════════════════════════════════════════════════════════════════
 
 def _build_training_css():
-    return """
-    @page { size: A4; margin: 30mm 18mm 20mm 22mm; }
+    """CSS สำหรับสัญญาฝึกอบรม — รวม @font-face embed THSarabunNew"""
+    fonts = font_b64()
+    reg  = fonts.get('THSarabunNew.ttf', '')
+    bold = fonts.get('THSarabunNew-Bold.ttf', '')
+    ff = ''
+    if reg:
+        ff += f"""
+        @font-face {{
+            font-family: 'THSarabunNew';
+            font-weight: normal;
+            src: url('data:font/truetype;base64,{reg}') format('truetype');
+        }}"""
+    if bold:
+        ff += f"""
+        @font-face {{
+            font-family: 'THSarabunNew';
+            font-weight: bold;
+            src: url('data:font/truetype;base64,{bold}') format('truetype');
+        }}"""
+
+    return ff + """
+    @page { size: A4; margin: 17mm 18mm 18mm 22mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: 'THSarabunNew', 'TH Sarabun New', sans-serif;
+        font-size: 9.5pt;
+        color: #000;
+        line-height: 1.55;
+    }
     .page { width: auto; min-height: auto; padding: 0; }
-    .ta-frame { border: 1.2pt solid #1a1a1a; padding: 5mm 6mm; }
-    .ta-title { font-size: 13pt; font-weight: bold; text-align: center; margin: 0 0 4mm; text-decoration: underline; letter-spacing: 0.5pt; }
-    .ta-course { font-size: 9.5pt; margin-bottom: 3mm; padding: 2mm 0; border-bottom: 0.5pt solid #ddd; }
+    .doc-number { font-size: 10pt; margin-bottom: 3mm; }
+    .ta-frame { border: 1.2pt solid #1a1a1a; padding: 4.5mm 6mm; }
+    .ta-title { font-size: 13pt; font-weight: bold; text-align: center; margin: 0 0 3.5mm; text-decoration: underline; letter-spacing: 0.5pt; }
+    .ta-course { font-size: 9.5pt; margin-bottom: 2.5mm; padding: 1.5mm 0; border-bottom: 0.5pt solid #ddd; }
     .ta-course b { color: #222; }
-    .ta-intro { font-size: 9.5pt; text-align: justify; line-height: 1.6; text-indent: 10mm; margin-bottom: 2.5mm; }
-    .ta-fields { width: 100%; border-collapse: collapse; margin-bottom: 2.5mm; font-size: 9.5pt; }
+    .ta-intro { font-size: 9.5pt; text-align: left; line-height: 1.55; text-indent: 10mm; margin-bottom: 2mm; word-wrap: break-word; }
+    .ta-fields { width: 100%; border-collapse: collapse; margin-bottom: 2mm; font-size: 9.5pt; }
     .ta-fields td { padding: 1mm 2mm; border: none; vertical-align: bottom; }
     .ta-fields .lbl { font-weight: bold; white-space: nowrap; color: #222; }
     .ta-fields .val { border-bottom: 0.5pt dotted #888; min-width: 15mm; }
-    .ta-parties { font-weight: bold; text-decoration: underline; font-size: 9.5pt; margin: 3mm 0 2mm; }
-    .ta-cl { font-size: 9.5pt; text-align: justify; line-height: 1.6; margin-bottom: 2.5mm; }
+    .ta-parties { font-weight: bold; text-decoration: underline; font-size: 9.5pt; margin: 2.5mm 0 1.5mm; }
+    .ta-cl { font-size: 9.5pt; text-align: left; line-height: 1.55; margin-bottom: 2mm; word-wrap: break-word; }
     .ta-cl-t { font-weight: bold; text-indent: 10mm; }
-    .ta-sub { margin-left: 14mm; margin-bottom: 2mm; font-size: 9.5pt; line-height: 1.6; text-align: justify; }
+    .ta-sub { margin-left: 14mm; margin-bottom: 1.5mm; font-size: 9.5pt; line-height: 1.55; text-align: left; word-wrap: break-word; }
     .ta-sub-item { display: flex; gap: 2mm; margin-bottom: 1.5mm; }
     .ta-sub-item .n { flex-shrink: 0; width: 8mm; text-align: center; font-weight: bold; }
     .ta-sub-item .t { flex: 1; }
-    .ta-closing { font-size: 9.5pt; text-align: justify; line-height: 1.6; text-indent: 10mm; margin-bottom: 2.5mm; }
-    .ta-sig-area { margin-top: 8mm; border-top: 0.5pt solid #ccc; padding-top: 4mm; }
-    .ta-sig-row { display: flex; justify-content: space-between; margin-bottom: 5mm; }
-    .ta-sig-box { width: 47%; text-align: center; padding: 3mm 2mm; border: 0.5pt solid #ddd; border-radius: 3pt; background: #fafafa; }
+    .ta-closing { font-size: 9.5pt; text-align: left; line-height: 1.55; text-indent: 10mm; margin-bottom: 2mm; word-wrap: break-word; }
+    .ta-sig-area { margin-top: 6mm; border-top: 0.5pt solid #ccc; padding-top: 3.5mm; }
+    .ta-sig-row { display: flex; justify-content: space-between; margin-bottom: 4mm; }
+    .ta-sig-box { width: 47%; text-align: center; padding: 2.5mm 2mm; border: 0.5pt solid #ddd; border-radius: 3pt; background: #fafafa; }
     .ta-sig-pre { font-size: 9pt; color: #666; margin-bottom: 0.5mm; }
     .ta-sig-dots { border-bottom: 0.5pt dotted #333; width: 45mm; margin: 0 auto 1mm; height: 9mm; }
     .ta-sig-lbl { font-size: 9pt; color: #444; }
@@ -99,7 +128,7 @@ def _build_sig_html(data):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# HTML BUILDER
+# HTML BUILDER — ★ v6: ใช้ _build_training_css() เท่านั้น (มี @font-face ครบ)
 # ══════════════════════════════════════════════════════════════════════
 
 def _build_training_html(data):
@@ -123,11 +152,12 @@ def _build_training_html(data):
     c_month      = e(data.get('contractMonth', ''))
     c_year       = e(data.get('contractYear', ''))
 
-    css = build_css() + _build_training_css()
+    # ★ v6: ใช้เฉพาะ _build_training_css() ที่มี @font-face + margin ครบ
+    css = _build_training_css()
     sig_html = _build_sig_html(data)
 
     content = f"""<div class="page">
-  <div class="doc-number" style="margin-bottom:4mm">{doc_number}</div>
+  <div class="doc-number">{doc_number}</div>
   <div class="ta-frame">
     <div class="ta-title">สัญญาเข้าศึกษา / ฝึกอบรม / สอบ</div>
     <div class="ta-course"><b>หลักสูตร :</b> {course}</div>
@@ -169,7 +199,7 @@ def _merge_multi_page(content_bytes, entity_key):
     """Overlay ทุกหน้าของ content บน entity template
 
     ★ S13 FIX-1: rename THSarabunNew → THSarabunNewTPL ก่อน merge
-    ★ S13 FIX-2: อ่าน template ใหม่ทุกหน้า แทน deepcopy
+    ★ S13 FIX-2: อ่าน template ใหม่ทุกหน้า (PdfReader) แทน deepcopy
     """
     from io import BytesIO
     from pypdf import PdfReader, PdfWriter
@@ -191,11 +221,9 @@ def _merge_multi_page(content_bytes, entity_key):
     writer = PdfWriter()
 
     for page in content_reader.pages:
-        # ★ FIX-2: อ่าน template ใหม่ทุกหน้า
         tpl_reader = PdfReader(tpl_path)
         bg = tpl_reader.pages[0]
 
-        # ★ FIX-1: Rename THSarabunNew → THSarabunNewTPL
         fonts = bg.get("/Resources", {}).get("/Font", {})
         for key in list(fonts.keys()):
             font_obj = fonts[key].get_object()
