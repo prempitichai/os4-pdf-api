@@ -69,9 +69,9 @@ def _build_warning_css():
     .doc-number { font-size: 10pt; margin-bottom: 4mm; color: #333; }
     .wl-tbl { width: 100%; border-collapse: collapse; border: 1.2pt solid #1a1a1a; }
     .wl-tbl td { border: 0.8pt solid #444; padding: 0; vertical-align: top; }
-    .wl-hdr { background: #f0f4f8; text-align: center; padding: 5mm 5mm 4mm; }
+    .wl-hdr { background: #f0f4f8; text-align: center; padding: 6mm 8mm 5mm; }
     .wl-hdr-title { font-size: 14pt; font-weight: bold; text-decoration: underline; letter-spacing: 0.5pt; color: #1a1a1a; }
-    .wl-content { padding: 4mm 6mm 4mm; font-size: 10.5pt; line-height: 1.55; }
+    .wl-content { padding: 5mm 8mm 5mm; font-size: 10.5pt; line-height: 1.55; }
     .wl-fields { width: 100%; border-collapse: collapse; margin-bottom: 3mm; font-size: 10.5pt; }
     .wl-fields td { padding: 1.5mm 2mm; border: none; vertical-align: bottom; }
     .wl-fields .lbl { font-weight: bold; white-space: nowrap; color: #222; }
@@ -219,19 +219,39 @@ def _merge_multi_page(content_bytes, entity_key):
         tpl_reader = PdfReader(tpl_path)
         bg = tpl_reader.pages[0]
 
-        fonts = bg.get("/Resources", {}).get("/Font", {})
-        for key in list(fonts.keys()):
-            font_obj = fonts[key].get_object()
-            base_font = str(font_obj.get("/BaseFont", ""))
-            if "THSarabunNew" in base_font:
-                new_bf = base_font.replace("THSarabunNew", "THSarabunNewTPL")
-                font_obj[NameObject("/BaseFont")] = NameObject("/" + new_bf.lstrip("/"))
-                if "/FontDescriptor" in font_obj:
-                    fd = font_obj["/FontDescriptor"].get_object()
-                    fd_name = str(fd.get("/FontName", ""))
-                    if "THSarabunNew" in fd_name:
-                        new_fn = fd_name.replace("THSarabunNew", "THSarabunNewTPL")
-                        fd[NameObject("/FontName")] = NameObject("/" + new_fn.lstrip("/"))
+        # ★ v7-s15 FIX: rename font ใน CONTENT (ไม่ใช่ template)
+        # เพราะ template font เป็น TrueType subset ที่มี fixed glyph mapping
+        # ถ้า rename template → glyph mapping เพี้ยน → garbled
+        # Content font เป็น Type0 + มี ToUnicode CMap → rename แล้วยัง map ได้ถูก
+        content_fonts = page.get("/Resources", {}).get("/Font", {})
+        for key in list(content_fonts.keys()):
+            try:
+                font_obj = content_fonts[key].get_object()
+                base_font = str(font_obj.get("/BaseFont", ""))
+                if "THSarabunNew" in base_font and "TPL" not in base_font:
+                    new_bf = base_font.replace("THSarabunNew", "THSarabunNewCTN")
+                    font_obj[NameObject("/BaseFont")] = NameObject("/" + new_bf.lstrip("/"))
+                    # DescendantFonts (Type0)
+                    if "/DescendantFonts" in font_obj:
+                        desc_arr = font_obj["/DescendantFonts"]
+                        for desc_ref in desc_arr:
+                            desc = desc_ref.get_object()
+                            dbf = str(desc.get("/BaseFont", ""))
+                            if "THSarabunNew" in dbf and "CTN" not in dbf:
+                                desc[NameObject("/BaseFont")] = NameObject("/" + dbf.replace("THSarabunNew", "THSarabunNewCTN").lstrip("/"))
+                            if "/FontDescriptor" in desc:
+                                fd = desc["/FontDescriptor"].get_object()
+                                fn = str(fd.get("/FontName", ""))
+                                if "THSarabunNew" in fn and "CTN" not in fn:
+                                    fd[NameObject("/FontName")] = NameObject("/" + fn.replace("THSarabunNew", "THSarabunNewCTN").lstrip("/"))
+                    # FontDescriptor (TrueType)
+                    if "/FontDescriptor" in font_obj:
+                        fd = font_obj["/FontDescriptor"].get_object()
+                        fn = str(fd.get("/FontName", ""))
+                        if "THSarabunNew" in fn and "CTN" not in fn:
+                            fd[NameObject("/FontName")] = NameObject("/" + fn.replace("THSarabunNew", "THSarabunNewCTN").lstrip("/"))
+            except Exception:
+                pass
 
         bg.merge_page(page)
         writer.add_page(bg)
