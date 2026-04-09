@@ -180,7 +180,7 @@ def _merge_multi_page(content_bytes, entity_key):
     ★ S13 FIX-1: rename THSarabunNew → THSarabunNewTPL ก่อน merge
       ป้องกัน font name conflict (MacRoman subset vs CIDFont Identity-H)
     ★ S13 FIX-2: อ่าน template ใหม่ทุกหน้า (PdfReader) แทน deepcopy
-      แก้ปัญหาหน้า 2+ แสดงซ้ำหน้า 1 (deepcopy share indirect objects)
+      แก้ปัญหาหน้า 2+ แสดงซ้ำหน้า 1 ( share indirect objects)
     """
     from io import BytesIO
     from pypdf import PdfReader, PdfWriter
@@ -202,7 +202,7 @@ def _merge_multi_page(content_bytes, entity_key):
     writer = PdfWriter()
 
     for page in content_reader.pages:
-        # ★ FIX-2: อ่าน template ใหม่ทุกหน้า — ไม่ใช้ deepcopy
+        # ★ FIX-2: อ่าน template ใหม่ทุกหน้า — ไม่ใช้ 
         #   deepcopy share indirect objects → ทุกหน้าแสดงหน้าสุดท้าย
         tpl_reader = PdfReader(tpl_path)
         bg = tpl_reader.pages[0]
