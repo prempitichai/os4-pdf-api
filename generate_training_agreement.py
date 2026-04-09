@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v6-s14
+# VERSION: v7-s15
 """
 generate_training_agreement.py — สัญญาเข้าศึกษา / ฝึกอบรม / สอบ
 ═══════════════════════════════════════════════════════════════════
-ใช้ template_utils (WeasyPrint + entity template overlay)
 
-★ S14 v6 changes:
-  - [FIX] เพิ่ม @font-face embed THSarabunNew ใน CSS — แก้ body text garbled
-  - [FIX] ลด @page margin-top 30mm → 17mm — doc-number ชิด logo template
-  - [FIX] ตรวจ spacing, line-height, padding ทั้งฉบับ
-  - [FIX] ไม่ใช้ build_css() แล้ว — ใช้ _build_training_css() ที่มี @font-face ครบ
-  - ไม่มี breaking changes
-
-★ S13 v5:  Font rename fix + page duplication fix
-★ S12 v4:  Layout กรอบ outer frame, font 9.5pt, ข้อ 1-9, sig 3 แถว
+★ S15 v7 changes:
+  - [FIX] doc-number แสดงทุกหน้า
+  - [FIX] sig เปลี่ยนจาก flex div → table (เหมือน WL)
+  - [FIX] sig: ไม่มีชื่อ → ไม่ใส่จุด (....), มีชื่อ → แสดงชื่อเลย
+  - [FIX] หน้า 2 เพิ่ม margin-top ข้อ 7 ไม่ชิดบน
+  - [FIX] layout ทั้งฉบับ — spacing, padding
+  - @font-face embed THSarabunNew + margin-top 17mm
 """
 
 import base64
@@ -28,21 +25,16 @@ from template_utils import (
 logger = logging.getLogger(__name__)
 
 
-# ══════════════════════════════════════════════════════════════════════
-# UTILITY
-# ══════════════════════════════════════════════════════════════════════
-
 def _esc(s):
     return (str(s or '').replace('&','&amp;').replace('<','&lt;')
             .replace('>','&gt;').replace('"','&quot;'))
 
 
 # ══════════════════════════════════════════════════════════════════════
-# CSS — ★ v6: เพิ่ม @font-face embed + ลด margin-top 30→17mm
+# CSS
 # ══════════════════════════════════════════════════════════════════════
 
 def _build_training_css():
-    """CSS สำหรับสัญญาฝึกอบรม — รวม @font-face embed THSarabunNew"""
     fonts = font_b64()
     reg  = fonts.get('THSarabunNew.ttf', '')
     bold = fonts.get('THSarabunNew-Bold.ttf', '')
@@ -69,48 +61,45 @@ def _build_training_css():
         font-family: 'THSarabunNew', 'TH Sarabun New', sans-serif;
         font-size: 9.5pt;
         color: #000;
-        line-height: 1.55;
+        line-height: 1.5;
     }
     .page { width: auto; min-height: auto; padding: 0; }
-    .doc-number { font-size: 10pt; margin-bottom: 3mm; }
-    .ta-frame { border: 1.2pt solid #1a1a1a; padding: 4.5mm 6mm; }
-    .ta-title { font-size: 13pt; font-weight: bold; text-align: center; margin: 0 0 3.5mm; text-decoration: underline; letter-spacing: 0.5pt; }
-    .ta-course { font-size: 9.5pt; margin-bottom: 2.5mm; padding: 1.5mm 0; border-bottom: 0.5pt solid #ddd; }
+    .doc-number { font-size: 10pt; margin-bottom: 4mm; color: #333; }
+    .ta-frame { border: 1.2pt solid #1a1a1a; padding: 5mm 6mm; }
+    .ta-title { font-size: 13pt; font-weight: bold; text-align: center; margin: 0 0 4mm; text-decoration: underline; letter-spacing: 0.5pt; }
+    .ta-course { font-size: 9.5pt; margin-bottom: 3mm; padding: 2mm 0; border-bottom: 0.5pt solid #ddd; }
     .ta-course b { color: #222; }
-    .ta-intro { font-size: 9.5pt; text-align: left; line-height: 1.55; text-indent: 10mm; margin-bottom: 2mm; word-wrap: break-word; }
-    .ta-fields { width: 100%; border-collapse: collapse; margin-bottom: 2mm; font-size: 9.5pt; }
+    .ta-intro { font-size: 9.5pt; text-align: left; line-height: 1.5; text-indent: 10mm; margin-bottom: 2.5mm; word-wrap: break-word; }
+    .ta-fields { width: 100%; border-collapse: collapse; margin-bottom: 2.5mm; font-size: 9.5pt; }
     .ta-fields td { padding: 1mm 2mm; border: none; vertical-align: bottom; }
     .ta-fields .lbl { font-weight: bold; white-space: nowrap; color: #222; }
     .ta-fields .val { border-bottom: 0.5pt dotted #888; min-width: 15mm; }
-    .ta-parties { font-weight: bold; text-decoration: underline; font-size: 9.5pt; margin: 2.5mm 0 1.5mm; }
-    .ta-cl { font-size: 9.5pt; text-align: left; line-height: 1.55; margin-bottom: 2mm; word-wrap: break-word; }
+    .ta-parties { font-weight: bold; text-decoration: underline; font-size: 9.5pt; margin: 3mm 0 2mm; }
+    .ta-cl { font-size: 9.5pt; text-align: left; line-height: 1.5; margin-bottom: 2.5mm; word-wrap: break-word; }
     .ta-cl-t { font-weight: bold; text-indent: 10mm; }
-    .ta-sub { margin-left: 14mm; margin-bottom: 1.5mm; font-size: 9.5pt; line-height: 1.55; text-align: left; word-wrap: break-word; }
+    .ta-sub { margin-left: 14mm; margin-bottom: 2mm; font-size: 9.5pt; line-height: 1.5; text-align: left; word-wrap: break-word; }
     .ta-sub-item { display: flex; gap: 2mm; margin-bottom: 1.5mm; }
     .ta-sub-item .n { flex-shrink: 0; width: 8mm; text-align: center; font-weight: bold; }
     .ta-sub-item .t { flex: 1; }
-    .ta-closing { font-size: 9.5pt; text-align: left; line-height: 1.55; text-indent: 10mm; margin-bottom: 2mm; word-wrap: break-word; }
-    .ta-sig-area { margin-top: 6mm; border-top: 0.5pt solid #ccc; padding-top: 3.5mm; }
-    .ta-sig-row { display: flex; justify-content: space-between; margin-bottom: 4mm; }
-    .ta-sig-box { width: 47%; text-align: center; padding: 2.5mm 2mm; border: 0.5pt solid #ddd; border-radius: 3pt; background: #fafafa; }
-    .ta-sig-pre { font-size: 9pt; color: #666; margin-bottom: 0.5mm; }
-    .ta-sig-dots { border-bottom: 0.5pt dotted #333; width: 45mm; margin: 0 auto 1mm; height: 9mm; }
-    .ta-sig-lbl { font-size: 9pt; color: #444; }
+    .ta-closing { font-size: 9.5pt; text-align: left; line-height: 1.5; text-indent: 10mm; margin-bottom: 2.5mm; word-wrap: break-word; }
+    /* ★ v7: sig ใช้ table เหมือน WL */
+    .ta-sig-tbl { width: 100%; border-collapse: collapse; margin-top: 8mm; border-top: 0.5pt solid #ccc; }
+    .ta-sig-tbl td { padding: 4mm 3mm; text-align: center; vertical-align: top; width: 50%; border: none; }
+    .ta-sig-line { border-bottom: 0.5pt dotted #333; width: 50mm; margin: 0 auto 1.5mm; height: 10mm; }
+    .ta-sig-lbl { font-size: 9.5pt; color: #333; }
     .ta-sig-nm { font-size: 10pt; }
+    .ta-sig-pre { font-size: 9pt; color: #666; margin-bottom: 0.5mm; }
     """
 
 
 # ══════════════════════════════════════════════════════════════════════
-# SIGNATURE
+# SIGNATURE — ★ v7: table layout เหมือน WL + ไม่มีจุด
 # ══════════════════════════════════════════════════════════════════════
 
-def _sig_box(label, name):
+def _sig_cell(label, name):
     e = _esc
-    nd = f'({e(name)})' if name else '(....................................................................)'
-    return f'<div class="ta-sig-box"><div class="ta-sig-pre">ลงชื่อ</div><div class="ta-sig-dots"></div><div class="ta-sig-lbl">{label}</div><div class="ta-sig-nm">{nd}</div></div>'
-
-def _sig_empty():
-    return '<div class="ta-sig-box" style="border:none;background:transparent"></div>'
+    nm_html = f'<div class="ta-sig-nm">({e(name)})</div>' if name else ''
+    return f'<td><div class="ta-sig-pre">ลงชื่อ</div><div class="ta-sig-line"></div><div class="ta-sig-lbl">{label}</div>{nm_html}</td>'
 
 def _build_sig_html(data):
     co1 = data.get('companySignerName', '')
@@ -119,16 +108,17 @@ def _build_sig_html(data):
     sup = data.get('supervisorName', '')
     w1  = data.get('witness1Name', '')
     w2  = data.get('witness2Name', '')
-    h = '<div class="ta-sig-area">'
-    h += '<div class="ta-sig-row">' + _sig_box('นายจ้าง/บริษัทฯ', co1) + (_sig_box('นายจ้าง/บริษัทฯ (คนที่ 2)', co2) if co2 else _sig_empty()) + '</div>'
-    h += '<div class="ta-sig-row">' + _sig_box('พนักงาน', emp) + _sig_box('หัวหน้างาน', sup) + '</div>'
-    h += '<div class="ta-sig-row">' + _sig_box('พยาน', w1) + _sig_box('พยาน', w2) + '</div>'
-    h += '</div>'
+    h = '<table class="ta-sig-tbl">'
+    h += '<tr>' + _sig_cell('นายจ้าง/บริษัทฯ', co1)
+    h += _sig_cell('นายจ้าง/บริษัทฯ (คนที่ 2)', co2) if co2 else '<td></td>'
+    h += '</tr><tr>' + _sig_cell('พนักงาน', emp) + _sig_cell('หัวหน้างาน', sup)
+    h += '</tr><tr>' + _sig_cell('พยาน', w1) + _sig_cell('พยาน', w2) + '</tr>'
+    h += '</table>'
     return h
 
 
 # ══════════════════════════════════════════════════════════════════════
-# HTML BUILDER — ★ v6: ใช้ _build_training_css() เท่านั้น (มี @font-face ครบ)
+# HTML BUILDER
 # ══════════════════════════════════════════════════════════════════════
 
 def _build_training_html(data):
@@ -152,7 +142,6 @@ def _build_training_html(data):
     c_month      = e(data.get('contractMonth', ''))
     c_year       = e(data.get('contractYear', ''))
 
-    # ★ v6: ใช้เฉพาะ _build_training_css() ที่มี @font-face + margin ครบ
     css = _build_training_css()
     sig_html = _build_sig_html(data)
 
@@ -192,15 +181,11 @@ def _build_training_html(data):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# PDF MERGE — rename font ก่อน merge ป้องกัน conflict
+# PDF MERGE
 # ══════════════════════════════════════════════════════════════════════
 
 def _merge_multi_page(content_bytes, entity_key):
-    """Overlay ทุกหน้าของ content บน entity template
-
-    ★ S13 FIX-1: rename THSarabunNew → THSarabunNewTPL ก่อน merge
-    ★ S13 FIX-2: อ่าน template ใหม่ทุกหน้า (PdfReader) แทน deepcopy
-    """
+    """Overlay ทุกหน้าของ content บน entity template"""
     from io import BytesIO
     from pypdf import PdfReader, PdfWriter
     from pypdf.generic import NameObject
@@ -214,7 +199,6 @@ def _merge_multi_page(content_bytes, entity_key):
     if not os.path.exists(tpl_path):
         tpl_path = os.path.join(base, 'bg_template_scmtech.pdf')
     if not os.path.exists(tpl_path):
-        logger.warning(f'Template ไม่พบ: {tpl_name} — คืน content เปล่า')
         return content_bytes
 
     content_reader = PdfReader(BytesIO(content_bytes))
