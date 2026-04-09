@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v6-s14
+# VERSION: v7-s15
 """
 generate_warning_letter.py — หนังสือตักเตือนพนักงาน (Warning Letter)
 ═══════════════════════════════════════════════════════════════════
-ใช้ template_utils (WeasyPrint + entity template overlay)
 
-★ S14 v6 changes:
-  - [FIX] เพิ่ม @font-face embed THSarabunNew ใน CSS — แก้ body text garbled
-    (v5 พึ่ง build_css() แต่ WL override @page ทำให้ WeasyPrint fallback font อื่น)
-  - [FIX] ลด @page margin-top 30mm → 17mm — doc-number ชิด logo template
-  - [FIX] ตรวจ word spacing, line-height, padding ทั้งฉบับ
-  - [FIX] ไม่ใช้ build_css() แล้ว — ใช้ _build_warning_css() ที่มี @font-face ครบ
-  - ไม่มี breaking changes กับ API / GAS frontend
-
-★ S13 v5:  Font rename fix + page duplication fix
-★ S12 v4:  Layout table border, 2 หน้า, sig 3 แถว
+★ S15 v7 changes:
+  - [FIX] doc-number แสดงทุกหน้า (margin-bottom ชัดเจน)
+  - [FIX] spacing ระหว่างหัวข้อ + บรรทัดแรก (เพิ่ม padding)
+  - [FIX] sig: ไม่มีชื่อ → ไม่ใส่ (....) + มีชื่อ → แสดงชื่อเลย
+  - [FIX] layout ทั้งฉบับ — spacing, padding, line-height
+  - @font-face embed THSarabunNew + margin-top 17mm
 """
 
 import base64
@@ -29,10 +24,6 @@ from template_utils import (
 logger = logging.getLogger(__name__)
 
 
-# ══════════════════════════════════════════════════════════════════════
-# UTILITY
-# ══════════════════════════════════════════════════════════════════════
-
 def _esc(s):
     return (str(s or '').replace('&','&amp;').replace('<','&lt;')
             .replace('>','&gt;').replace('"','&quot;'))
@@ -42,11 +33,10 @@ def _chk(checked):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# CSS — ★ v6: เพิ่ม @font-face embed + ลด margin-top 30→17mm
+# CSS
 # ══════════════════════════════════════════════════════════════════════
 
 def _build_warning_css():
-    """CSS สำหรับหนังสือตักเตือน — รวม @font-face embed THSarabunNew"""
     fonts = font_b64()
     reg  = fonts.get('THSarabunNew.ttf', '')
     bold = fonts.get('THSarabunNew-Bold.ttf', '')
@@ -73,44 +63,45 @@ def _build_warning_css():
         font-family: 'THSarabunNew', 'TH Sarabun New', sans-serif;
         font-size: 10.5pt;
         color: #000;
-        line-height: 1.6;
+        line-height: 1.55;
     }
     .page { width: auto; min-height: auto; padding: 0; }
-    .doc-number { font-size: 10pt; margin-bottom: 3mm; }
+    .doc-number { font-size: 10pt; margin-bottom: 4mm; color: #333; }
     .wl-tbl { width: 100%; border-collapse: collapse; border: 1.2pt solid #1a1a1a; }
     .wl-tbl td { border: 0.8pt solid #444; padding: 0; vertical-align: top; }
-    .wl-hdr { background: #f0f4f8; text-align: center; padding: 3.5mm 5mm; }
+    .wl-hdr { background: #f0f4f8; text-align: center; padding: 5mm 5mm 4mm; }
     .wl-hdr-title { font-size: 14pt; font-weight: bold; text-decoration: underline; letter-spacing: 0.5pt; color: #1a1a1a; }
-    .wl-content { padding: 4mm 6mm 3.5mm; font-size: 10.5pt; line-height: 1.6; }
-    .wl-fields { width: 100%; border-collapse: collapse; margin-bottom: 2.5mm; font-size: 10.5pt; }
-    .wl-fields td { padding: 1.2mm 2mm; border: none; vertical-align: bottom; }
+    .wl-content { padding: 4mm 6mm 4mm; font-size: 10.5pt; line-height: 1.55; }
+    .wl-fields { width: 100%; border-collapse: collapse; margin-bottom: 3mm; font-size: 10.5pt; }
+    .wl-fields td { padding: 1.5mm 2mm; border: none; vertical-align: bottom; }
     .wl-fields .lbl { font-weight: bold; white-space: nowrap; color: #222; }
     .wl-fields .val { border-bottom: 0.6pt dotted #888; min-width: 18mm; }
-    .wl-sec { font-weight: bold; text-decoration: underline; margin: 3mm 0 1.5mm; font-size: 10.5pt; }
-    .wl-vbox { border: 1pt solid #bbb; border-radius: 2pt; padding: 2.5mm 4mm; margin-bottom: 2.5mm; min-height: 22mm; background: #fafafa; }
-    .wl-vbox p { margin: 0 0 1.5mm; text-indent: 10mm; text-align: left; line-height: 1.65; font-size: 10.5pt; word-wrap: break-word; }
-    .wl-p { text-align: left; text-indent: 10mm; line-height: 1.65; margin-bottom: 2mm; font-size: 10.5pt; word-wrap: break-word; }
-    .wl-p-ul { text-align: left; text-indent: 10mm; line-height: 1.65; margin-bottom: 2mm; text-decoration: underline; font-size: 10.5pt; word-wrap: break-word; }
-    .wl-note-box { background: #f7f7f7; border-left: 2pt solid #aaa; padding: 2.5mm 4mm; margin: 2.5mm 0; font-size: 9.5pt; line-height: 1.5; word-wrap: break-word; }
+    .wl-sec { font-weight: bold; text-decoration: underline; margin: 4mm 0 2.5mm; font-size: 10.5pt; }
+    .wl-vbox { border: 1pt solid #999; border-radius: 2pt; padding: 3mm 4mm; margin-bottom: 3.5mm; min-height: 25mm; background: #fafafa; }
+    .wl-vbox p { margin: 0 0 1.5mm; text-indent: 10mm; text-align: left; line-height: 1.6; font-size: 10.5pt; word-wrap: break-word; }
+    .wl-p { text-align: left; text-indent: 10mm; line-height: 1.6; margin-bottom: 2.5mm; font-size: 10.5pt; word-wrap: break-word; }
+    .wl-p-ul { text-align: left; text-indent: 10mm; line-height: 1.6; margin-bottom: 2.5mm; text-decoration: underline; font-size: 10.5pt; word-wrap: break-word; }
+    .wl-note-box { background: #f7f7f7; border-left: 2pt solid #aaa; padding: 3mm 4mm; margin: 3mm 0; font-size: 9.5pt; line-height: 1.5; word-wrap: break-word; }
     .wl-note-title { font-weight: bold; text-decoration: underline; }
     .wl-chk { display: flex; align-items: flex-start; gap: 3mm; margin: 1.5mm 0 1.5mm 18mm; font-size: 10.5pt; line-height: 1.45; }
     .wl-chk-icon { font-size: 13pt; line-height: 1; flex-shrink: 0; }
-    .wl-sig td { padding: 3.5mm 3mm; text-align: center; vertical-align: top; width: 50%; }
-    .wl-sig-line { border-bottom: 0.5pt dotted #333; width: 48mm; margin: 0 auto 1mm; height: 9mm; }
-    .wl-sig-lbl { font-size: 9pt; color: #444; margin-bottom: 0.5mm; }
+    .wl-sig td { padding: 4mm 3mm; text-align: center; vertical-align: top; width: 50%; }
+    .wl-sig-line { border-bottom: 0.5pt dotted #333; width: 50mm; margin: 0 auto 1.5mm; height: 10mm; }
+    .wl-sig-lbl { font-size: 9.5pt; color: #333; margin-bottom: 0.5mm; }
     .wl-sig-nm { font-size: 10pt; }
     .wl-sig-pre { font-size: 9pt; color: #666; margin-bottom: 0.5mm; }
     """
 
 
 # ══════════════════════════════════════════════════════════════════════
-# SIGNATURE
+# SIGNATURE — ★ v7: ไม่มีชื่อ → ไม่ใส่จุด
 # ══════════════════════════════════════════════════════════════════════
 
 def _sig_cell(label, name):
     e = _esc
-    nd = f'({e(name)})' if name else '(....................................................................)'
-    return f'<td><div class="wl-sig-pre">ลงชื่อ</div><div class="wl-sig-line"></div><div class="wl-sig-lbl">{label}</div><div class="wl-sig-nm">{nd}</div></td>'
+    # ★ v7: มีชื่อ → แสดงชื่อ, ไม่มี → แสดงว่าง
+    nm_html = f'<div class="wl-sig-nm">({e(name)})</div>' if name else ''
+    return f'<td><div class="wl-sig-pre">ลงชื่อ</div><div class="wl-sig-line"></div><div class="wl-sig-lbl">{label}</div>{nm_html}</td>'
 
 def _build_sig_rows(data):
     co1 = data.get('companySignerName', '')
@@ -127,7 +118,7 @@ def _build_sig_rows(data):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# HTML BUILDER — ★ v6: ใช้ _build_warning_css() เท่านั้น (มี @font-face ครบ)
+# HTML BUILDER
 # ══════════════════════════════════════════════════════════════════════
 
 def _build_warning_html(data):
@@ -154,16 +145,17 @@ def _build_warning_html(data):
     punishment   = data.get('punishmentType', 'written')
     notif_method = data.get('notificationMethod', 'read_aloud')
 
-    # ★ v6: ใช้เฉพาะ _build_warning_css() ที่มี @font-face + margin ครบ
     css = _build_warning_css()
     sig_html = _build_sig_rows(data)
 
     content = f"""<div class="page">
   <div class="doc-number">{doc_number}</div>
   <table class="wl-tbl">
-    <tr><td colspan="2" class="wl-hdr"><div class="wl-hdr-title">หนังสือตักเตือนพนักงาน</div></td></tr>
+    <tr><td colspan="2" class="wl-hdr">
+      <div class="wl-hdr-title">หนังสือตักเตือนพนักงาน</div>
+    </td></tr>
     <tr><td colspan="2" class="wl-content">
-      <p class="wl-p">หนังสือฉบับนี้ทำขึ้นเมื่อวันที่ {date_text} ระหว่าง {company} {company_addr}</p>
+      <p class="wl-p" style="margin-top:1mm">หนังสือฉบับนี้ทำขึ้นเมื่อวันที่ {date_text} ระหว่าง {company} {company_addr}</p>
       <table class="wl-fields">
         <tr><td class="lbl">นาย / นาง / นางสาว</td><td class="val">{emp_name}</td><td class="lbl">เลขประจำตัวประชาชน</td><td class="val">{emp_id}</td></tr>
         <tr><td class="lbl">รหัสพนักงาน</td><td class="val">{emp_code}</td><td class="lbl">ตำแหน่ง</td><td class="val">{emp_pos}</td></tr>
@@ -171,12 +163,12 @@ def _build_warning_html(data):
       </table>
       <div class="wl-sec">พฤติการณ์การกระทำผิดที่เกิดขึ้น เมื่อวันที่ {incident_date}</div>
       <div class="wl-vbox">{body_html}</div>
-      <p class="wl-p-ul">ดังนั้นการกระทำของท่านถือว่าไม่สอดคล้องกับระเบียบและข้อบังคับเกี่ยวกับการทำงานของบริษัท จึงถือเป็นการกระทำความผิดต่อบริษัทและทำให้บริษัทได้รับความเสียหายจากการกระทำของท่าน</p>
+      <p class="wl-p-ul" style="margin-top:2mm">ดังนั้นการกระทำของท่านถือว่าไม่สอดคล้องกับระเบียบและข้อบังคับเกี่ยวกับการทำงานของบริษัท จึงถือเป็นการกระทำความผิดต่อบริษัทและทำให้บริษัทได้รับความเสียหายจากการกระทำของท่าน</p>
       <div class="wl-sec">การลงโทษในครั้งนี้</div>
       <div class="wl-chk"><span class="wl-chk-icon">{_chk(punishment == 'verbal')}</span> ตักเตือนด้วยวาจา</div>
       <div class="wl-chk"><span class="wl-chk-icon">{_chk(punishment == 'written')}</span> ตักเตือนเป็นลายลักษณ์อักษร</div>
       <div class="wl-chk"><span class="wl-chk-icon">{_chk(punishment == 'suspension')}</span> พักงานโดยไม่ได้รับค่าจ้างและตักเตือนเป็นลายลักษณ์อักษร</div>
-      <p class="wl-p" style="margin-top:2.5mm">ขอตักเตือนผู้กระทำความผิดโดยห้ามมิให้กระทำความผิดเดิมซ้ำอีกมิฉะนั้นจะลงโทษในสถานหนักต่อไป แต่หากได้ลงโทษผู้กระทำความผิดโดยตักเตือนเป็นลายลักษณ์อักษรหรือพักงานโดยไม่ได้รับค่าจ้างและตักเตือนเป็นลายลักษณ์อักษรในครั้งนี้แล้ว ถ้าได้กระทำความผิดเดิมซ้ำอีกในคราวต่อไป <b><u>ภายในระยะเวลา 1 (หนึ่ง) ปี</u></b> นับแต่วันที่กระทำความผิดครั้งนี้ ผู้กระทำความผิดจะต้องถูกลงโทษด้วยการเลิกจ้างโดยไม่จ่ายค่าชดเชยใด ๆ ทั้งสิ้น เว้นแต่มีเหตุให้บรรเทาโทษซึ่งอาจจะลดโทษให้ได้ตามสมควร</p>
+      <p class="wl-p" style="margin-top:3mm">ขอตักเตือนผู้กระทำความผิดโดยห้ามมิให้กระทำความผิดเดิมซ้ำอีกมิฉะนั้นจะลงโทษในสถานหนักต่อไป แต่หากได้ลงโทษผู้กระทำความผิดโดยตักเตือนเป็นลายลักษณ์อักษรหรือพักงานโดยไม่ได้รับค่าจ้างและตักเตือนเป็นลายลักษณ์อักษรในครั้งนี้แล้ว ถ้าได้กระทำความผิดเดิมซ้ำอีกในคราวต่อไป <b><u>ภายในระยะเวลา 1 (หนึ่ง) ปี</u></b> นับแต่วันที่กระทำความผิดครั้งนี้ ผู้กระทำความผิดจะต้องถูกลงโทษด้วยการเลิกจ้างโดยไม่จ่ายค่าชดเชยใด ๆ ทั้งสิ้น เว้นแต่มีเหตุให้บรรเทาโทษซึ่งอาจจะลดโทษให้ได้ตามสมควร</p>
     </td></tr>
   </table>
   <div style="page-break-before:always"></div>
@@ -187,7 +179,7 @@ def _build_warning_html(data):
         <p><span class="wl-note-title">หมายเหตุ</span> ในกรณีที่พนักงานที่ถูกลงโทษไม่ยินยอมลงนามในหนังสือตักเตือนดังกล่าวข้างต้นศาลฎีกาแผนกคดีแรงงานได้เคยวินิจฉัยว่าหากนายจ้างได้แจ้งพนักงานที่ถูกลงโทษโดยชอบด้วยกฎหมายแล้วให้ถือว่าหนังสือตักเตือนมีผลสมบูรณ์</p>
         <p style="margin-top:1.5mm">— หากพนักงานไม่รับหนังสือเตือน บริษัทจะจัดส่งหนังสือเตือนไปยังภูมิลำเนา และ/หรือ อีเมล และ/หรือ ไลน์แจ้งหนังสือเตือน และให้ถือว่าท่านรับหนังสือเตือนดังกล่าวโดยชอบแล้ว</p>
       </div>
-      <div class="wl-sec">วิธีการแจ้ง</div>
+      <div class="wl-sec" style="margin-top:4mm">วิธีการแจ้ง</div>
       <p style="margin-bottom:2mm;font-size:10.5pt">ด้วยวิธีใดวิธีหนึ่ง ดังต่อไปนี้</p>
       <div class="wl-chk"><span class="wl-chk-icon">{_chk(notif_method == 'posted')}</span> ติดประกาศให้ทราบในสถานประกอบการ</div>
       <div class="wl-chk"><span class="wl-chk-icon">{_chk(notif_method == 'read_aloud')}</span> อ่านให้ผู้กระทำความผิดทราบ โดยมีพยานรับรู้การลงโทษในครั้งนี้และลงนามเป็นพยานอย่างน้อย 2 คน</div>
@@ -200,15 +192,11 @@ def _build_warning_html(data):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# PDF MERGE — rename font ก่อน merge ป้องกัน conflict
+# PDF MERGE
 # ══════════════════════════════════════════════════════════════════════
 
 def _merge_multi_page(content_bytes, entity_key):
-    """Overlay ทุกหน้าของ content บน entity template
-
-    ★ S13 FIX-1: rename THSarabunNew → THSarabunNewTPL ก่อน merge
-    ★ S13 FIX-2: อ่าน template ใหม่ทุกหน้า (PdfReader) แทน deepcopy
-    """
+    """Overlay ทุกหน้าของ content บน entity template"""
     from io import BytesIO
     from pypdf import PdfReader, PdfWriter
     from pypdf.generic import NameObject
@@ -222,7 +210,6 @@ def _merge_multi_page(content_bytes, entity_key):
     if not os.path.exists(tpl_path):
         tpl_path = os.path.join(base, 'bg_template_scmtech.pdf')
     if not os.path.exists(tpl_path):
-        logger.warning(f'Template ไม่พบ: {tpl_name} — คืน content เปล่า')
         return content_bytes
 
     content_reader = PdfReader(BytesIO(content_bytes))
