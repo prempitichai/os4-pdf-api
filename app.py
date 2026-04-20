@@ -14,6 +14,17 @@ OS4 PDF API Server — deploy บน Render / Railway
   8. [NEW v6] _fmt_cent() ฟังก์ชันใหม่ดึง สตางค์ part
   9. [NEW v6] Signature: ลบชื่อ line1, ขยับขึ้น 10pt, กึ่งกลาง
 
+★ v7 — แก้ไข BG Delivery (20/04/69):
+  1. [BG-#1+5+6] Format จำนวนเงิน "62,500.00 บาท" ทุกจุด (helper: _bg_fmt_money)
+  2. [BG-#4] Fix logic ชื่อบริษัทแบบส่ง — ของ [counterparty] ไม่ใช่ SCM
+  3. [BG-#2] ขยาย column ชื่อสัญญา 148→175, คู่สัญญา 125→145, ลบ Project Owner
+  4. [BG-#NEW] เพิ่ม "ส่วนที่ 4 — รายละเอียดสำหรับการขอคืนหลักประกัน"
+     ใต้ส่วนที่ 3 (ช่องว่าง 3 บรรทัดเส้นประให้เขียน)
+  5. [BG-L2] แก้ชื่อบริษัท default "บจก." → "บริษัท...จำกัด" เต็ม
+  6. [BG-L2] Smart word-boundary wrap (helper: _bg_smart_wrap)
+     - ตัดที่ space/คำ แทนตัวอักษรกลางคำ
+     - ใช้ใน ตาราง (page 1) + _bg_field() (page 2)
+
 Endpoints:
   POST /generate               → อ.ส.4 stamp duty
   POST /generate_bg_delivery   → BG Delivery Form
@@ -106,7 +117,7 @@ _register_fonts_once()
 # DEFAULT COMPANY INFO
 # ============================================================
 _SCM_DEFAULT = {
-    'companyName':   'บจก. เอส ซีเอ็ม เอส เทคโนโลจีส์',
+    'companyName':   'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด',
     'companyNameEn': 'SCM Technologies Co., Ltd.',
     'address':       '92/41 อาคารสาธรธานี 2 ชั้นที่ 15 ถนนสาทรเหนือ แขวงสีลม เขตบางรัก กรุงเทพมหานคร 10500',
     'phone':         '02-116-4312, 02-116-4213',
@@ -451,6 +462,89 @@ _FIELD_BG = _HC('#f7f9fc'); _FIELD_BD = _HC('#d0d5dd')
 _W = white; _B = black; _TF = THAI_FONT
 
 
+# [BG-v7] Money formatter — "62,500.00 บาท"
+def _bg_fmt_money(v):
+    """
+    [v7] Format ตัวเลข → "62,500.00 บาท"
+    - ว่าง/0 → คืนค่าว่าง ''
+    - parse ได้ → "1,234.56 บาท"
+    - parse ไม่ได้ → คืน string เดิม (ไม่ crash)
+    """
+    if v is None or v == '':
+        return ''
+    try:
+        s = str(v).replace(',', '').replace(' ', '').replace('บาท', '').strip()
+        if not s:
+            return ''
+        n = float(s)
+        if n == 0:
+            return ''
+        return f'{n:,.2f} บาท'
+    except (ValueError, TypeError):
+        return str(v)
+
+
+# [BG-v7-L2] Smart word-boundary wrapper — ตัดที่ space แทนตัวอักษรกลางคำ
+def _bg_smart_wrap(c, text, fo, sz, max_w, max_lines=4):
+    """
+    [v7-L2] Wrap ข้อความเป็นหลายบรรทัด โดย prefer ตัดที่ space/คำ
+    
+    Algorithm:
+      1. ถ้า fit ใน 1 บรรทัด → คืนทันที
+      2. หา substring ยาวสุดที่ fit (ตาม pixel width)
+      3. [SMART] ถอยหา space ย้อนกลับ — ถ้าเจอ space ในครึ่งหลัง
+         → ตัดที่ space (ไม่ตัดกลางคำ)
+      4. Fallback: ตัดที่ตัวอักษรถ้าไม่มี space (Thai text ล้วน)
+      5. บรรทัดสุดท้ายใส่ '…' ถ้ายังเหลือ
+    
+    Args:
+      c:        canvas (ใช้ stringWidth)
+      text:     input string
+      fo:       font name
+      sz:       font size
+      max_w:    max width per line
+      max_lines: ไม่เกินกี่บรรทัด
+    
+    Returns:
+      list[str] ของแต่ละบรรทัด
+    """
+    if not text:
+        return ['']
+    t = str(text).strip()
+    if c.stringWidth(t, fo, sz) <= max_w:
+        return [t]
+    
+    lines = []
+    rem = t
+    while rem and len(lines) < max_lines:
+        # หา substring ยาวสุดที่ fit
+        fit = rem
+        while len(fit) > 1 and c.stringWidth(fit, fo, sz) > max_w:
+            fit = fit[:-1]
+        
+        # ถ้ายังเหลือตัวต่อ → ลองหา space ย้อนกลับ (smart boundary)
+        if len(fit) < len(rem):
+            # หา space/whitespace ใน fit (ถอยกลับ)
+            sp = max(fit.rfind(' '), fit.rfind('\t'), fit.rfind('\n'))
+            # ตัดที่ space ถ้า space อยู่หลังครึ่งแรกของบรรทัด (ไม่ให้บรรทัดสั้นเกิน)
+            if sp > len(fit) * 0.5:
+                fit = fit[:sp]
+        
+        # บรรทัดสุดท้าย — ถ้ายังเหลือ → ใส่ '…'
+        if len(lines) == max_lines - 1 and len(fit) < len(rem):
+            trail = fit
+            while len(trail) > 1 and c.stringWidth(trail + '…', fo, sz) > max_w:
+                trail = trail[:-1]
+            lines.append(trail + '…')
+            break
+        
+        lines.append(fit)
+        # ตัดแล้ว strip space ที่ต้น (ถ้าเกิด ตัดที่ space)
+        rem = rem[len(fit):].lstrip()
+    
+    return lines if lines else ['']
+
+
 def _draw_checkmark_bg(c, x, y, sz, color):
     c.setStrokeColor(color)
     c.setLineWidth(1.2)
@@ -486,9 +580,15 @@ def _bg_field(c, x, y, w, h, text='', fs=8):
         c.setFont(_TF, fs)
         t = str(text)
         max_w = w - 6
+        # [BG-v7-L2] Smart truncate — ลองตัดที่ space ก่อนใส่ ellipsis
         if c.stringWidth(t, _TF, fs) > max_w:
+            # ตัดจนกว่าจะ fit (+ room for '…')
             while len(t) > 1 and c.stringWidth(t + '…', _TF, fs) > max_w:
                 t = t[:-1]
+            # [SMART] ถ้าเจอ space หลังครึ่งแรก → ตัดที่ space
+            sp = t.rfind(' ')
+            if sp > len(t) * 0.5:
+                t = t[:sp]
             t = t + '…'
         c.drawString(x + 3, y + (h - fs) / 2, t)
     c.setFillColor(_B)
@@ -535,7 +635,13 @@ def _bg_sign(c, x, y, title, w=155, h=55):
 
 
 def _create_bg_delivery_pdf(d):
-    """สร้าง BG Delivery Form (2 หน้า: Landscape + Portrait)"""
+    """สร้าง BG Delivery Form (2 หน้า: Landscape + Portrait)
+    
+    ★ v7 แก้ไข:
+      [BG-#1+5+6] จำนวนเงินใช้ _bg_fmt_money() → "62,500.00 บาท"
+      [BG-#4]     Logic "ของ [X]" แบบส่ง = counterparty (cpy) ไม่ใช่ SCM
+      [BG-#2]     Column widths: ชื่อสัญญา 148→175, คู่สัญญา 125→145, ลบ Project Owner
+    """
     from reportlab.lib.pagesizes import A4
     A4W, A4H   = A4
     LW, LH     = _landscape(A4)
@@ -546,7 +652,9 @@ def _create_bg_delivery_pdf(d):
     rn  = d.get('receiverName', '');  rc  = d.get('receiverCompany', ''); rp  = d.get('receiverPhone', '')
     cno = d.get('contractNo', '');    cnm = d.get('contractName', '')
     dt  = d.get('docTypeText', 'หนังสือค้ำประกันสัญญา')
-    bgn = d.get('bgNumber', '');      isd = d.get('issueDate', '');       bgv = d.get('bgValue', '')
+    bgn = d.get('bgNumber', '');      isd = d.get('issueDate', '')
+    # [BG-v7 #1+5+6] Format จำนวนเงินครั้งเดียวที่นี่ — ใช้ซ้ำทุกจุด
+    bgv = _bg_fmt_money(d.get('bgValue', ''))
     bge = d.get('bgExpiry', '');      cpy = d.get('counterparty', '');    po  = d.get('poNumber', '')
     own = d.get('projectOwner', '');  bnk = d.get('bankName', 'ธนาคารกสิกรไทย')
     bbr = d.get('bankBranch', 'สาขานราธิวาสราชนครินทร์')
@@ -585,9 +693,12 @@ def _create_bg_delivery_pdf(d):
     ty = y - 16 - 3 * (rh + g) - 6
     ty = _bg_section(c, mx, ty, mr - mx, 'ส่วนที่ 2 — ข้อมูลจัดเก็บเอกสาร')
 
+    # [BG-v7 #2] ขยาย column ชื่อสัญญา+คู่สัญญา, ลบ Project Owner
+    # เดิม (11 cols): [22, 68, 148, 58, 62, 52, 68, 56, 125, 58, 56]  = 771pt
+    # ใหม่ (10 cols): [24, 72, 175, 60, 64, 54, 72, 58, 145, 58]      = 782pt → fit in landscape
     hds = ['#', 'เลขที่สัญญา', 'ชื่อสัญญา', 'ประเภทเอกสาร', 'เลขที่เอกสาร',
-           'ลงวันที่', 'จำนวนเงิน (บาท)', 'วันครบกำหนด', 'คู่สัญญา', 'เลขที่ PO', 'Project Owner']
-    cw_tbl = [22, 68, 148, 58, 62, 52, 68, 56, 125, 58, 56]
+           'ลงวันที่', 'จำนวนเงิน (บาท)', 'วันครบกำหนด', 'คู่สัญญา', 'เลขที่ PO']
+    cw_tbl = [24, 72, 175, 60, 64, 54, 72, 58, 145, 58]
     tw  = sum(cw_tbl); tx_tbl = mx; thh = 16; tdh = 40
 
     c.setFillColor(_BLUE); c.rect(tx_tbl, ty - thh, tw, thh, fill=1)
@@ -603,17 +714,14 @@ def _create_bg_delivery_pdf(d):
     for w in cw_tbl[:-1]:
         cx_ += w; c.line(cx_, ty - thh, cx_, ty - thh - tdh)
 
-    vs = ['1', cno, cnm, dt, bgn, isd, bgv, bge, cpy, po, own]
+    # [BG-v7 #1] bgv = formatted money แล้ว | ลบ own (Project Owner) ออก
+    vs = ['1', cno, cnm, dt, bgn, isd, bgv, bge, cpy, po]
     c.setFont(_TF, 7); c.setFillColor(_B)
     cx_ = tx_tbl
     for i, v in enumerate(vs):
-        t = str(v or ''); cwd = cw_tbl[i] - 4; ls = []
-        while t:
-            f = t
-            while c.stringWidth(f, _TF, 7) > cwd and len(f) > 1:
-                f = f[:-1]
-            ls.append(f); t = t[len(f):]
-            if len(ls) >= 4: break
+        # [BG-v7-L2] Smart wrap — ตัดที่ space แทนตัวอักษรกลางคำ
+        cwd = cw_tbl[i] - 4
+        ls = _bg_smart_wrap(c, str(v or ''), _TF, 7, cwd, max_lines=4)
         for li, ln in enumerate(ls):
             c.drawString(cx_ + 2, ty - thh - 10 - li * 8, ln)
         cx_ += cw_tbl[i]
@@ -624,6 +732,27 @@ def _create_bg_delivery_pdf(d):
     sx = pw / 2 - 175
     _bg_sign(c, sx, sy - 68, 'ลงนามผู้นำส่ง')
     _bg_sign(c, sx + 190, sy - 68, 'ลงนามผู้รับเอกสาร')
+
+    # ═══════════════════════════════════════════════════════
+    # [BG-v7] ส่วนที่ 4 — รายละเอียดสำหรับการขอคืนหลักประกัน
+    # ═══════════════════════════════════════════════════════
+    # ตำแหน่ง: ใต้ส่วนที่ 3 (ใต้ลายเซ็นผู้นำส่ง/ผู้รับ)
+    # ขนาด: 2-3 บรรทัด (ช่องว่างให้เขียนด้วยมือ)
+    # Label: หัวข้อส่วน เท่านั้น (ไม่มี sub-label)
+    s4y = sy - 68 - 55 - 8   # sign box bottom = sy - 68 - 55 ; padding 8
+    s4y = _bg_section(c, mx, s4y, mr - mx, 'ส่วนที่ 4 — รายละเอียดสำหรับการขอคืนหลักประกัน')
+    # วาด 3 เส้นประสำหรับให้เขียน (เต็มความกว้าง mr-mx ลบ padding ซ้าย 10)
+    _line_w  = mr - mx - 20          # เว้น padding 10 ซ้าย + 10 ขวา
+    _line_x1 = mx + 10
+    _line_x2 = _line_x1 + _line_w
+    for _i in range(3):
+        _ly = s4y - _i * 14          # line spacing 14pt
+        c.setStrokeColor(_HC('#aaaaaa'))
+        c.setLineWidth(0.5)
+        c.setDash(1, 2)              # dotted line
+        c.line(_line_x1, _ly, _line_x2, _ly)
+    c.setDash()                      # reset dash
+
     c.showPage()
 
     # ════ หน้า 2 PORTRAIT ════
@@ -656,7 +785,9 @@ def _create_bg_delivery_pdf(d):
     c.drawString(m2 + 22, cy + 1, 'หลักประกันซอง')
     _bg_chk(c, m2 + 110, cy, ic); c.drawString(m2 + 122, cy + 1, 'หลักประกันสัญญา')
     _bg_chk(c, m2 + 230, cy, ii); c.drawString(m2 + 242, cy + 1, 'เอกสารประกันภัย')
-    c.setFont(_TF, 7.5); c.drawString(m2 + 325, cy + 1, 'ของ ' + chd)
+    # [BG-v7 #4] แบบส่ง: "ของ [counterparty]" — ไม่ใช่ chd (SCM) อีกต่อไป
+    # Logic: SCM ส่งหลักประกันของคู่สัญญา
+    c.setFont(_TF, 7.5); c.drawString(m2 + 325, cy + 1, 'ของ ' + (cpy or chd))
 
     cy -= 20
     _bg_label(c, m2 + 10, cy + 3, 'สำหรับโครงการ')
@@ -687,9 +818,10 @@ def _create_bg_delivery_pdf(d):
     _bg_label(c, m2 + 10, cy + 3, 'เลขที่')
     _bg_field(c, m2 + 42, cy - 1, 135, 15, bgn, 8)
     _bg_label(c, m2 + 186, cy + 3, 'จำนวน')
-    _bg_field(c, m2 + 218, cy - 1, 110, 15, bgv, 8)
+    # [BG-v7 #5] แบบส่ง — bgv = formatted money "62,500.00 บาท" แล้ว
+    _bg_field(c, m2 + 218, cy - 1, 150, 15, bgv, 8)
     c.setFont(_TF, 6); c.setFillColor(_LGRAY)
-    c.drawString(m2 + 338, cy + 3, 'ครบถ้วนถูกต้องเรียบร้อย')
+    c.drawString(m2 + 378, cy + 3, 'ครบถ้วนถูกต้องเรียบร้อย')
     _bg_sign(c, pw2 / 2 - 78, cy - 62, 'ลงชื่อผู้ส่งหลักประกัน', 155, 50)
 
     c.setStrokeColor(_PURPLE); c.setLineWidth(2); c.rect(m2, rb, fw, rh2)
@@ -733,9 +865,10 @@ def _create_bg_delivery_pdf(d):
     _bg_label(c, m2 + 10, cy2 + 3, 'เลขที่')
     _bg_field(c, m2 + 42, cy2 - 1, 135, 15, bgn, 8)
     _bg_label(c, m2 + 186, cy2 + 3, 'จำนวน')
-    _bg_field(c, m2 + 218, cy2 - 1, 110, 15, bgv, 8)
+    # [BG-v7 #6] แบบคืน — bgv = formatted money "62,500.00 บาท" แล้ว
+    _bg_field(c, m2 + 218, cy2 - 1, 150, 15, bgv, 8)
     c.setFont(_TF, 6); c.setFillColor(_LGRAY)
-    c.drawString(m2 + 338, cy2 + 3, 'ครบถ้วน')
+    c.drawString(m2 + 378, cy2 + 3, 'ครบถ้วน')
     _bg_sign(c, pw2 / 2 - 78, cy2 - 55, 'ลงชื่อผู้คืนหลักประกัน', 155, 45)
 
     c.save()
