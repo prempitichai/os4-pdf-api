@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v1
+# VERSION: v2-signature-stamp
 """
 generate_general_letter.py — หนังสือทั่วไป (General Letter)
 ═══════════════════════════════════════════════════════════
 ใช้ template_utils shared module (WeasyPrint + entity template overlay)
 Layout อิงจาก หนังสือขอถอนหลักประกัน (BG Withdraw)
+
+★ v2 — Digital Signature + Stamp (22/04/69):
+  - เพิ่ม params: signatureKey, stampKey
+  - ใช้ build_sig_closing_with_image() แทน sig_closing() เมื่อมี signature/stamp
+  - Backward compatible 100% — ถ้าไม่ส่ง keys → ทำงานเหมือนเดิม
 
 POST /generate_general_letter
   Input: {
@@ -19,6 +24,8 @@ POST /generate_general_letter
     bodyParagraphs,   — เนื้อหา (string หลายย่อหน้า แบ่งด้วย \\n)
     signerName,       — ชื่อผู้ลงนาม
     signerPosition,   — ตำแหน่ง
+    signatureKey,     — [NEW v2] key ลายเซ็น เช่น 'pitichai' (optional)
+    stampKey,         — [NEW v2] key ตราประทับ เช่น 'scm_technologies' (optional)
   }
   Output: { success, pdfBase64, fileName }
 
@@ -33,6 +40,13 @@ from flask import request, jsonify
 from template_utils import (
     merge_on_template, html_to_pdf, build_css, build_html,
     fmt, fmt_date_th, sig_closing
+)
+
+# ★ v2 — import signature/stamp helper
+from signature_stamp import (
+    build_sig_closing_with_image,
+    validate_signature_key,
+    validate_stamp_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,6 +113,22 @@ def _build_general_letter_html(data):
     signer_name = data.get('signerName', '')
     signer_pos  = data.get('signerPosition', 'Corporate Lawyers')
 
+    # ★ v2 — รับ signature + stamp keys (optional)
+    # ── signatureKey: เช่น 'pitichai' | None = ไม่ใส่
+    # ── stampKey: เช่น 'scm_technologies' | None = ไม่ใส่
+    sig_key   = str(data.get('signatureKey', '') or '').strip() or None
+    stamp_key = str(data.get('stampKey', '') or '').strip() or None
+
+    # Validate — ถ้า key ผิด → log warning แต่ไม่ fail (fallback = ไม่ใส่)
+    sig_ok, sig_err = validate_signature_key(sig_key)
+    if not sig_ok:
+        logger.warning(f'general_letter signature_key error: {sig_err}')
+        sig_key = None
+    stamp_ok, stamp_err = validate_stamp_key(stamp_key)
+    if not stamp_ok:
+        logger.warning(f'general_letter stamp_key error: {stamp_err}')
+        stamp_key = None
+
     # ── เนื้อหา: แบ่งย่อหน้าด้วย \n ──
     body_raw = str(data.get('bodyParagraphs', '') or '').strip()
     if body_raw:
@@ -108,8 +138,23 @@ def _build_general_letter_html(data):
 
     body_html = '\n'.join(f'  <p class="para">{_esc(p)}</p>' for p in paras)
 
-    # ── ลายเซ็น ──
-    sig_html = sig_closing(signer_name, signer_pos) if signer_name else ''
+    # ★ v2 — เลือก sig closing: มี image หรือไม่?
+    # ── ถ้ามี signer_name:
+    #     ★ ถ้า sig_key หรือ stamp_key → ใช้ build_sig_closing_with_image
+    #     ★ ถ้าไม่ → ใช้ sig_closing เดิม (backward compat)
+    # ── ถ้าไม่มี signer_name → ไม่มี sig block (เหมือน v1)
+    if signer_name:
+        if sig_key or stamp_key:
+            sig_html = build_sig_closing_with_image(
+                signer=signer_name,
+                position=signer_pos,
+                signature_key=sig_key,
+                stamp_key=stamp_key,
+            )
+        else:
+            sig_html = sig_closing(signer_name, signer_pos)
+    else:
+        sig_html = ''
 
     # ── สร้าง page HTML (ใช้ class จาก template_utils build_css) ──
     css = build_css()
