@@ -3,22 +3,24 @@
 ═══════════════════════════════════════════════════════════════
 signature_stamp.py — Digital Signature + Company Stamp helpers
 ═══════════════════════════════════════════════════════════════
-VERSION: v5-layout-0303-match (22/04/69)
+VERSION: v5-final2 (22/04/69)
 
 ★ สำหรับใส่ลายเซ็นและตราประทับลงบน PDF forms (WeasyPrint-compatible)
 
-[v5 Changelog]
-  • เปลี่ยน layout จาก 3-col → 2-col (50/50) ตรงกับตัวอย่าง INET_LGD_0303
-  • ตราประทับ: ซ้าย (50%) — center align
-  • ลายเซ็น: ขวา (50%) — วางทับเส้นลายเซ็น (margin-bottom negative)
-  • "ขอแสดงความนับถือ" ชิดขวา (ตรงกับ column ลายเซ็น)
-  • ลด size: sig 48→40mm, stamp 55→50mm (ตาม proportion ตัวอย่าง)
-  • เพิ่ม logger.info เพื่อ debug ง่ายขึ้น
+[v5-final2 Changelog — deep overlap match 0303]
+  ✓ ลายเซ็น margin-bottom: -16mm → -26mm (ซ้อนเส้นลึกแบบ 0303 เป๊ะ)
+
+[v5-final Changelog — match INET_LGD_0303 sample]
+  ✓ ลบ white background ทั้งหมด (watermark ทะลุผ่านเป็นธรรมชาติ)
+  ✓ ลบ z-index, padding, border-radius (ไม่จำเป็นถ้าไม่มี bg)
+  ✓ ตรา: 55mm → 60mm (ใหญ่ขึ้นให้ชัด)
+  ✓ ลายเซ็น: 48mm → 55mm (ใหญ่ขึ้นให้ชัด)
+  ✓ Layout: 2-col 50/50 — ตราซ้าย / ลายเซ็นขวา
 
 [v4 kept features]
   ✓ Triple-path fallback: assets/xxx/yyy.png | yyy.png | assets:xxx:yyy.png
-  ✓ White background container + z-index สูง (ไม่ถูก watermark กลบ)
-  ✓ opacity:1.0 เพื่อให้ชัดเจน
+  ✓ Logger debug messages
+  ✓ opacity:1.0 (ชัดเจน ไม่จางกลบ watermark)
 """
 
 import os
@@ -45,8 +47,8 @@ SIGNATURES = {
         'filename': 'pitichai.png',
         'name': 'นายปิติชัย พัฒนกิจกุล',
         'title': 'Corporate Lawyers',
-        'width_mm': 40,   # v5: ลดจาก 48 → 40
-        'height_mm': 22,
+        'width_mm': 55,   # v5-final: 48 → 55 (ใหญ่ขึ้นให้ชัด ตามตัวอย่าง 0303)
+        'height_mm': 30,
     },
 }
 
@@ -59,18 +61,23 @@ STAMPS = {
     'scm_technologies': {
         'filename': 'scm_technologies.png',
         'name': 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด',
-        'width_mm': 50,   # v5: ลดจาก 55 → 50
-        'height_mm': 28,
+        'width_mm': 60,   # v5-final: 55 → 60 (ใหญ่ขึ้นให้ชัด ตามตัวอย่าง 0303)
+        'height_mm': 34,
     },
 }
 
 
 # ═══════════════════════════════════════════════════════════════
-# [HELPERS] Path resolution
+# [HELPERS] Path resolution — Triple-path fallback
 # ═══════════════════════════════════════════════════════════════
 
 def get_signature_path(key):
-    """หา path ของ signature — triple-path fallback"""
+    """หา path ของ signature — triple-path fallback
+
+    1. assets/signatures/xxx.png  (ถูกต้องตามมาตรฐาน)
+    2. xxx.png                    (root fallback)
+    3. assets:signatures:xxx.png  (⚠️ macOS slash→colon bug)
+    """
     if not key or key not in SIGNATURES:
         return None
     filename = SIGNATURES[key]['filename']
@@ -106,11 +113,16 @@ def get_stamp_path(key):
 
 
 # ═══════════════════════════════════════════════════════════════
-# [HELPERS] Base64 encoder
+# [HELPERS] Base64 encoder — สำหรับ WeasyPrint
 # ═══════════════════════════════════════════════════════════════
 
 def _img_to_base64_uri(path):
-    """แปลงภาพ PNG → data URI base64"""
+    """แปลงภาพ PNG → data URI base64
+
+    ใช้ data:image/png;base64 แทน file:// URI เพราะ:
+    - Portable (ไม่ต้องกังวล path)
+    - เร็วกว่าเปิดไฟล์ใหม่ทุกครั้ง
+    """
     try:
         with open(path, 'rb') as f:
             b64 = base64.b64encode(f.read()).decode('ascii')
@@ -121,7 +133,7 @@ def _img_to_base64_uri(path):
 
 
 # ═══════════════════════════════════════════════════════════════
-# [MAIN HELPER] build_sig_closing_with_image (v5 — 0303 layout)
+# [MAIN HELPER] build_sig_closing_with_image (v5-final)
 # ═══════════════════════════════════════════════════════════════
 
 def build_sig_closing_with_image(signer, position='Corporate Lawyers',
@@ -129,17 +141,26 @@ def build_sig_closing_with_image(signer, position='Corporate Lawyers',
     """
     สร้าง HTML block ลายเซ็นท้ายเอกสาร พร้อมใส่ภาพลายเซ็น + ตราประทับ
 
-    [Layout v5 — ตรงกับตัวอย่าง INET_LGD_0303]
+    [Layout v5-final — ตรงกับตัวอย่าง INET_LGD_0303]
       ┌─────────────────────────────────────────────┐
       │                       ขอแสดงความนับถือ       │
       │                                             │
       │  ┌───────────────┬──────────────────────┐  │
-      │  │               │     [ลายเซ็น]         │  │
-      │  │  [ตรา SCM]    │  ────────────────     │  │ 50% | 50%
+      │  │               │     [ลายเซ็น 55mm]    │  │
+      │  │  [ตรา 60mm]   │  ════════════════     │  │ 50% | 50%
       │  │               │  (นายปิติชัย)         │  │
       │  │               │  Corporate Lawyers    │  │
       │  └───────────────┴──────────────────────┘  │
       └─────────────────────────────────────────────┘
+
+    ★ ไม่มี white background — watermark ผ่านทะลุได้ตามธรรมชาติ
+    ★ ลายเซ็นซ้อนเส้น (margin-bottom:-16mm)
+
+    Args:
+        signer (str): ชื่อผู้ลงนาม
+        position (str): ตำแหน่ง
+        signature_key (str | None): key ลายเซ็น
+        stamp_key (str | None): key ตรา
 
     Returns:
         str: HTML block (ready to inject in template)
@@ -154,10 +175,11 @@ def build_sig_closing_with_image(signer, position='Corporate Lawyers',
     logger.info(f'[SIG_CLOSING] sig_key={signature_key} sig_uri_len={len(sig_uri)}')
     logger.info(f'[SIG_CLOSING] stamp_key={stamp_key} stamp_uri_len={len(stamp_uri)}')
 
+    # ขนาดจาก registry (fallback ถ้าไม่มี key)
     sig_meta = SIGNATURES.get(signature_key, {}) if signature_key else {}
     stamp_meta = STAMPS.get(stamp_key, {}) if stamp_key else {}
-    sig_w = sig_meta.get('width_mm', 40)
-    stamp_w = stamp_meta.get('width_mm', 50)
+    sig_w = sig_meta.get('width_mm', 55)
+    stamp_w = stamp_meta.get('width_mm', 60)
 
     # ─── Build image HTML ───
     stamp_img_html = ''
@@ -168,38 +190,41 @@ def build_sig_closing_with_image(signer, position='Corporate Lawyers',
             f'alt="company stamp"/>'
         )
 
-    # ลายเซ็นทับเส้นใต้ชื่อ — ใช้ margin-bottom negative
+    # ลายเซ็นทับเส้นใต้ชื่อ — ใช้ margin-bottom negative (v5-final2: -26mm ซ้อนลึก)
     sig_img_html = ''
     if sig_uri:
         sig_img_html = (
             f'<img src="{sig_uri}" '
             f'style="width:{sig_w}mm; height:auto; opacity:1.0; '
-            f'display:block; margin:0 auto -12mm auto;" '
+            f'display:block; margin:0 auto -26mm auto;" '
             f'alt="signature"/>'
         )
 
     # ─── Assemble HTML ───
+    # [v5-final Design]
+    # ★ NO white background — ตรงกับตัวอย่าง 0303
+    # ★ NO z-index, padding, border-radius (ไม่จำเป็นถ้าไม่มี bg)
+    # ★ "ขอแสดงความนับถือ" ชิดขวา (align กับ column ลายเซ็น)
+    # ★ 2-column table 50/50
+    #   - ซ้าย: ตราประทับ — center + vertical-align:middle
+    #   - ขวา: ลายเซ็น (ซ้อนเส้น) + เส้นใต้ + (ชื่อ) + ตำแหน่ง
     html = f'''
-<div class="sig-closing" style="margin-top:10mm; page-break-inside:avoid;
-    background-color:#ffffff; padding:6mm 4mm;
-    border-radius:2mm; position:relative; z-index:100;">
-  <div style="text-align:right; padding-right:18mm; margin-bottom:2mm;
-              font-size:inherit; position:relative; z-index:101;">
+<div class="sig-closing" style="margin-top:10mm; page-break-inside:avoid;">
+  <div style="text-align:right; padding-right:18mm; margin-bottom:4mm;
+              font-size:inherit;">
     ขอแสดงความนับถือ
   </div>
-  <table style="width:100%; border-collapse:collapse;
-                position:relative; z-index:101;">
+  <table style="width:100%; border-collapse:collapse;">
     <tr>
       <td style="width:50%; vertical-align:middle; text-align:center;
-                 padding:8mm 0 0 0; background:#fff;">
+                 padding:8mm 0 0 0;">
         {stamp_img_html}
       </td>
       <td style="width:50%; vertical-align:bottom; text-align:center;
-                 padding:0 0 0 0; background:#fff;">
+                 padding:0;">
         {sig_img_html}
         <div style="border-top:1px solid #000; padding-top:1mm;
-                    margin:0 auto; min-width:70mm; display:inline-block;
-                    background:#fff;">
+                    margin:0 auto; min-width:75mm; display:inline-block;">
           <div style="font-weight:bold;">({signer})</div>
           <div style="color:#444;">{position}</div>
         </div>
@@ -216,6 +241,7 @@ def build_sig_closing_with_image(signer, position='Corporate Lawyers',
 # ═══════════════════════════════════════════════════════════════
 
 def list_available_signatures():
+    """คืน list ของลายเซ็นที่ใช้งานได้ (มีไฟล์อยู่จริง)"""
     result = []
     for key, meta in SIGNATURES.items():
         if get_signature_path(key):
@@ -228,6 +254,7 @@ def list_available_signatures():
 
 
 def list_available_stamps():
+    """คืน list ของตราประทับที่ใช้งานได้ (มีไฟล์อยู่จริง)"""
     result = []
     for key, meta in STAMPS.items():
         if get_stamp_path(key):
@@ -239,6 +266,7 @@ def list_available_stamps():
 
 
 def get_signature_stamp_options():
+    """คืน options ทั้งหมดสำหรับ GAS → สร้าง UI"""
     return {
         'signatures': list_available_signatures(),
         'stamps': list_available_stamps(),
@@ -250,6 +278,7 @@ def get_signature_stamp_options():
 # ═══════════════════════════════════════════════════════════════
 
 def validate_signature_key(key):
+    """ตรวจ signature key — (is_valid, error_message)"""
     if not key:
         return True, ''
     if key not in SIGNATURES:
@@ -260,6 +289,7 @@ def validate_signature_key(key):
 
 
 def validate_stamp_key(key):
+    """ตรวจ stamp key — (is_valid, error_message)"""
     if not key:
         return True, ''
     if key not in STAMPS:
@@ -274,7 +304,7 @@ def validate_stamp_key(key):
 # ═══════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
-    print('=== Signature Stamp Helper v5 — Debug ===\n')
+    print('=== Signature Stamp Helper v5-final2 — Debug ===\n')
     print(f'BASE_DIR: {BASE_DIR}')
     print(f'ASSETS_DIR: {ASSETS_DIR}')
     print(f'ASSETS_DIR exists: {os.path.isdir(ASSETS_DIR)}\n')
@@ -294,3 +324,5 @@ if __name__ == '__main__':
         stamp_key='scm_technologies'
     )
     print('HTML length:', len(html))
+    print('\n--- HTML Preview (first 500 chars) ---')
+    print(html[:500])
