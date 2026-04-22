@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v3-shared-module
+# VERSION: v4-signature-stamp
 """
 generate_bg_withdraw.py — ใช้ template_utils shared module
 ═══════════════════════════════════════════════════════════
   1. POST /generate_bg_withdraw — หนังสือแจ้งขอถอนหลักประกันสัญญา
   2. POST /generate_bg_poa      — หนังสือมอบอำนาจขอคืนหนังสือค้ำประกัน
+
+★ v4 — Digital Signature + Stamp (22/04/69):
+  - เพิ่ม params: signatureKey, stampKey
+  - ใช้ build_sig_closing_with_image() แทน sig_closing() เมื่อมี signature/stamp
+  - Backward compatible 100% — ถ้าไม่ส่ง keys → ทำงานเหมือนเดิม
+  - POA ยังใช้ sig_poa_line เดิม (4 ลายเซ็น: ผู้มอบ/ผู้รับ/พยาน 2 คน — ซับซ้อน, ทำภายหลัง)
 """
 
 import base64, logging
@@ -15,7 +21,15 @@ from template_utils import (
     fmt, fmt_date_th, sig_closing, sig_poa_line
 )
 
+# ★ v4 — import signature/stamp helper
+from signature_stamp import (
+    build_sig_closing_with_image,
+    validate_signature_key,
+    validate_stamp_key,
+)
+
 logger = logging.getLogger(__name__)
+
 
 def generate_bg_withdraw():
     try:
@@ -36,6 +50,23 @@ def generate_bg_withdraw():
         eshort     = ename
         entity_key = str(data.get('entityKey', '') or '')
 
+        # ★ v4 — รับ signature + stamp keys (optional)
+        # ── signatureKey: เช่น 'pitichai' | None = ไม่ใส่
+        # ── stampKey: เช่น 'scm_technologies' | None = ไม่ใส่
+        sig_key   = str(data.get('signatureKey', '') or '').strip() or None
+        stamp_key = str(data.get('stampKey', '') or '').strip() or None
+
+        # Validate — ถ้า key ผิด → log warning แต่ไม่ fail (fallback = ไม่ใส่)
+        sig_ok, sig_err = validate_signature_key(sig_key)
+        if not sig_ok:
+            logger.warning(f'bg_withdraw signature_key error: {sig_err}')
+            sig_key = None
+        stamp_ok, stamp_err = validate_stamp_key(stamp_key)
+        if not stamp_ok:
+            logger.warning(f'bg_withdraw stamp_key error: {stamp_err}')
+            stamp_key = None
+
+        # ── สร้าง body paragraphs ──
         p1 = (f'ตามที่{eshort} ได้ทำสัญญา{cname} '
               f'ฉบับเลขที่ {cid} ลงวันที่ {cdate} กับ {co} นั้น')
         p2 = (f'บัดนี้{eshort} ได้ทำงานสำเร็จเสร็จสิ้นเป็นที่เรียบร้อยแล้วตาม'
@@ -52,6 +83,19 @@ def generate_bg_withdraw():
 
         body_html = '\n'.join(f'  <p class="para">{p}</p>' for p in paras)
 
+        # ★ v4 — เลือก sig closing: มี image หรือไม่?
+        # ── ถ้ามี sig_key หรือ stamp_key → ใช้ build_sig_closing_with_image
+        # ── ถ้าไม่ → ใช้ sig_closing เดิม (backward compat)
+        if sig_key or stamp_key:
+            sig_block = build_sig_closing_with_image(
+                signer=signer,
+                position=spos,
+                signature_key=sig_key,
+                stamp_key=stamp_key,
+            )
+        else:
+            sig_block = sig_closing(signer, spos)
+
         css = build_css()
         page = f"""<div class="page">
   <div class="doc-number">เลขที่ {docnum}</div>
@@ -60,7 +104,7 @@ def generate_bg_withdraw():
   <div class="subject-line"><span class="subject-label">เรื่อง</span><span class="subject-value">ขอถอนหลักประกันสัญญา</span></div>
   <div class="subject-line"><span class="subject-label">เรียน</span><span class="subject-value">{co}</span></div>
 {body_html}
-  {sig_closing(signer, spos)}
+  {sig_block}
   <div class="clearfix"></div>
 </div>"""
 
@@ -76,6 +120,13 @@ def generate_bg_withdraw():
 
 
 def generate_bg_poa():
+    """หนังสือมอบอำนาจ
+
+    ★ v4 Note: POA มี 4 ลายเซ็น (ผู้มอบ/ผู้รับ/พยาน 2 คน)
+              ยังไม่ implement signature image สำหรับ POA ในเวอร์ชันนี้
+              (ซับซ้อน — ต้อง handle multiple signers)
+              สำหรับ POC ขอทำแค่ BG Withdraw ก่อน
+    """
     try:
         data       = request.get_json(force=True) or {}
         cid        = str(data.get('contractId', '') or '')
