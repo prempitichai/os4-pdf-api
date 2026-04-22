@@ -3,24 +3,31 @@
 ═══════════════════════════════════════════════════════════════
 signature_stamp.py — Digital Signature + Company Stamp helpers
 ═══════════════════════════════════════════════════════════════
-VERSION: v5-final2 (22/04/69)
+VERSION: v6 (22/04/69)
 
 ★ สำหรับใส่ลายเซ็นและตราประทับลงบน PDF forms (WeasyPrint-compatible)
 
-[v5-final2 Changelog — deep overlap match 0303]
-  ✓ ลายเซ็น margin-bottom: -16mm → -26mm (ซ้อนเส้นลึกแบบ 0303 เป๊ะ)
+[v6 Changelog — fine-tune ตามผล test จริง 0337]
+  ✓ ตราประทับ: 60mm → 70mm (ใหญ่ขึ้นให้ชัด)
+  ✓ ลายเซ็น: 55mm (คงเดิม)
+  ✓ ลายเซ็น margin-bottom: -26mm → -15mm
+    • -26mm: ลายเซ็น "หลุดลงใต้เส้น" ผลทดสอบใน 0337
+    • -15mm: ปลายลายเซ็นทับเส้นพอดี (ตามคำขอ)
+  ✓ Layout: natural flow (Option A) — signature เลื่อนตามเนื้อหา
+    • ถ้าเนื้อหาสั้น → signature อยู่บน
+    • ถ้าเนื้อหายาว → signature เลื่อนลง (ไม่ซ้อนเนื้อหา)
 
-[v5-final Changelog — match INET_LGD_0303 sample]
-  ✓ ลบ white background ทั้งหมด (watermark ทะลุผ่านเป็นธรรมชาติ)
-  ✓ ลบ z-index, padding, border-radius (ไม่จำเป็นถ้าไม่มี bg)
-  ✓ ตรา: 55mm → 60mm (ใหญ่ขึ้นให้ชัด)
-  ✓ ลายเซ็น: 48mm → 55mm (ใหญ่ขึ้นให้ชัด)
-  ✓ Layout: 2-col 50/50 — ตราซ้าย / ลายเซ็นขวา
+[Baseline features จาก v5-final2]
+  ✓ No white background (watermark ทะลุผ่านเป็นธรรมชาติ)
+  ✓ No z-index, padding, border-radius
+  ✓ Layout: 2-col 50/50 (ตราซ้าย / ลายเซ็นขวา)
+  ✓ "ขอแสดงความนับถือ" ชิดขวา
 
-[v4 kept features]
+[Technical baseline จาก v4]
   ✓ Triple-path fallback: assets/xxx/yyy.png | yyy.png | assets:xxx:yyy.png
   ✓ Logger debug messages
   ✓ opacity:1.0 (ชัดเจน ไม่จางกลบ watermark)
+  ✓ Base64 data URI (portable, no file:// issues)
 """
 
 import os
@@ -41,13 +48,14 @@ ASSETS_DIR = os.path.join(BASE_DIR, 'assets')
 # ═══════════════════════════════════════════════════════════════
 # [REGISTRY] Signatures — ลายเซ็นบุคคล
 # ═══════════════════════════════════════════════════════════════
+# เพิ่มลายเซ็นใหม่: ใส่ภาพใน ./assets/signatures/ + register ที่นี่
 
 SIGNATURES = {
     'pitichai': {
         'filename': 'pitichai.png',
         'name': 'นายปิติชัย พัฒนกิจกุล',
         'title': 'Corporate Lawyers',
-        'width_mm': 55,   # v5-final: 48 → 55 (ใหญ่ขึ้นให้ชัด ตามตัวอย่าง 0303)
+        'width_mm': 55,   # v6: คงเดิมจาก v5-final2
         'height_mm': 30,
     },
 }
@@ -56,14 +64,23 @@ SIGNATURES = {
 # ═══════════════════════════════════════════════════════════════
 # [REGISTRY] Stamps — ตราประทับบริษัท
 # ═══════════════════════════════════════════════════════════════
+# เพิ่มตราใหม่: ใส่ภาพใน ./assets/stamps/ + register ที่นี่
 
 STAMPS = {
     'scm_technologies': {
         'filename': 'scm_technologies.png',
         'name': 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด',
-        'width_mm': 60,   # v5-final: 55 → 60 (ใหญ่ขึ้นให้ชัด ตามตัวอย่าง 0303)
-        'height_mm': 34,
+        'width_mm': 70,   # v6: 60 → 70 (ใหญ่ขึ้นให้ชัด)
+        'height_mm': 40,
     },
+    # 'scm_s':    { 'filename': 'scm_s.png', 'name': '...', 'width_mm': 70, 'height_mm': 40 },
+    # 'scm_t':    { ... },
+    # 'scm_c':    { ... },
+    # 'holding':  { ... },
+    # 'cyber':    { ... },
+    # 'bc':       { ... },
+    # 'b2b':      { ... },
+    # 'fahcloud': { ... },
 }
 
 
@@ -133,7 +150,7 @@ def _img_to_base64_uri(path):
 
 
 # ═══════════════════════════════════════════════════════════════
-# [MAIN HELPER] build_sig_closing_with_image (v5-final)
+# [MAIN HELPER] build_sig_closing_with_image (v6)
 # ═══════════════════════════════════════════════════════════════
 
 def build_sig_closing_with_image(signer, position='Corporate Lawyers',
@@ -141,20 +158,21 @@ def build_sig_closing_with_image(signer, position='Corporate Lawyers',
     """
     สร้าง HTML block ลายเซ็นท้ายเอกสาร พร้อมใส่ภาพลายเซ็น + ตราประทับ
 
-    [Layout v5-final — ตรงกับตัวอย่าง INET_LGD_0303]
+    [Layout v6 — ตรงกับตัวอย่าง INET_LGD_0303]
       ┌─────────────────────────────────────────────┐
       │                       ขอแสดงความนับถือ       │
       │                                             │
       │  ┌───────────────┬──────────────────────┐  │
       │  │               │     [ลายเซ็น 55mm]    │  │
-      │  │  [ตรา 60mm]   │  ════════════════     │  │ 50% | 50%
-      │  │               │  (นายปิติชัย)         │  │
+      │  │  [ตรา 70mm]   │  ═══════════════     │  │ 50% | 50%
+      │  │               │  (นายปิติชัย)         │  │ ← ปลายซ้อนเส้น
       │  │               │  Corporate Lawyers    │  │
       │  └───────────────┴──────────────────────┘  │
       └─────────────────────────────────────────────┘
 
-    ★ ไม่มี white background — watermark ผ่านทะลุได้ตามธรรมชาติ
-    ★ ลายเซ็นซ้อนเส้น (margin-bottom:-16mm)
+    ★ ไม่มี white background — watermark ผ่านทะลุตามธรรมชาติ
+    ★ ปลายลายเซ็นทับเส้นเล็กน้อย (margin-bottom:-15mm)
+    ★ Natural flow — เลื่อนตามเนื้อหา
 
     Args:
         signer (str): ชื่อผู้ลงนาม
@@ -172,14 +190,14 @@ def build_sig_closing_with_image(signer, position='Corporate Lawyers',
     stamp_uri = _img_to_base64_uri(stamp_path) if stamp_path else ''
 
     # Debug logs
-    logger.info(f'[SIG_CLOSING] sig_key={signature_key} sig_uri_len={len(sig_uri)}')
-    logger.info(f'[SIG_CLOSING] stamp_key={stamp_key} stamp_uri_len={len(stamp_uri)}')
+    logger.info(f'[SIG_CLOSING v6] sig_key={signature_key} sig_uri_len={len(sig_uri)}')
+    logger.info(f'[SIG_CLOSING v6] stamp_key={stamp_key} stamp_uri_len={len(stamp_uri)}')
 
     # ขนาดจาก registry (fallback ถ้าไม่มี key)
     sig_meta = SIGNATURES.get(signature_key, {}) if signature_key else {}
     stamp_meta = STAMPS.get(stamp_key, {}) if stamp_key else {}
     sig_w = sig_meta.get('width_mm', 55)
-    stamp_w = stamp_meta.get('width_mm', 60)
+    stamp_w = stamp_meta.get('width_mm', 70)
 
     # ─── Build image HTML ───
     stamp_img_html = ''
@@ -190,24 +208,26 @@ def build_sig_closing_with_image(signer, position='Corporate Lawyers',
             f'alt="company stamp"/>'
         )
 
-    # ลายเซ็นทับเส้นใต้ชื่อ — ใช้ margin-bottom negative (v5-final2: -26mm ซ้อนลึก)
+    # ลายเซ็นทับเส้นใต้ชื่อ — ใช้ margin-bottom negative (v6: -15mm)
+    # ลดจาก v5-final2 (-26mm) เพราะลายเซ็นหลุดลงใต้เส้น → ต้องการแค่ปลายทับเส้น
     sig_img_html = ''
     if sig_uri:
         sig_img_html = (
             f'<img src="{sig_uri}" '
             f'style="width:{sig_w}mm; height:auto; opacity:1.0; '
-            f'display:block; margin:0 auto -26mm auto;" '
+            f'display:block; margin:0 auto -15mm auto;" '
             f'alt="signature"/>'
         )
 
     # ─── Assemble HTML ───
-    # [v5-final Design]
+    # [v6 Design]
     # ★ NO white background — ตรงกับตัวอย่าง 0303
-    # ★ NO z-index, padding, border-radius (ไม่จำเป็นถ้าไม่มี bg)
+    # ★ NO z-index, padding, border-radius
     # ★ "ขอแสดงความนับถือ" ชิดขวา (align กับ column ลายเซ็น)
     # ★ 2-column table 50/50
-    #   - ซ้าย: ตราประทับ — center + vertical-align:middle
-    #   - ขวา: ลายเซ็น (ซ้อนเส้น) + เส้นใต้ + (ชื่อ) + ตำแหน่ง
+    #   - ซ้าย: ตราประทับ (70mm) — center + vertical-align:middle
+    #   - ขวา: ลายเซ็น (55mm, ปลายทับเส้น) + เส้นใต้ + (ชื่อ) + ตำแหน่ง
+    # ★ margin-top:10mm → เว้นจากเนื้อหา natural flow
     html = f'''
 <div class="sig-closing" style="margin-top:10mm; page-break-inside:avoid;">
   <div style="text-align:right; padding-right:18mm; margin-bottom:4mm;
@@ -304,7 +324,7 @@ def validate_stamp_key(key):
 # ═══════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
-    print('=== Signature Stamp Helper v5-final2 — Debug ===\n')
+    print('=== Signature Stamp Helper v6 — Debug ===\n')
     print(f'BASE_DIR: {BASE_DIR}')
     print(f'ASSETS_DIR: {ASSETS_DIR}')
     print(f'ASSETS_DIR exists: {os.path.isdir(ASSETS_DIR)}\n')
@@ -316,7 +336,7 @@ if __name__ == '__main__':
     for stamp in list_available_stamps():
         print(f'  • {stamp["key"]}: {stamp["name"]}')
 
-    print('\n=== Test build_sig_closing_with_image ===')
+    print('\n=== Test build_sig_closing_with_image (v6) ===')
     html = build_sig_closing_with_image(
         signer='นายปิติชัย พัฒนกิจกุล',
         position='Corporate Lawyers',
