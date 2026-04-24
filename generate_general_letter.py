@@ -1,32 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v2-signature-stamp
+# VERSION: v3-s41-defense-in-depth
 """
 generate_general_letter.py — หนังสือทั่วไป (General Letter)
 ═══════════════════════════════════════════════════════════
 ใช้ template_utils shared module (WeasyPrint + entity template overlay)
 Layout อิงจาก หนังสือขอถอนหลักประกัน (BG Withdraw)
 
-★ v2 — Digital Signature + Stamp (22/04/69):
+★ v2 (22/04/69) — Digital Signature + Stamp:
   - เพิ่ม params: signatureKey, stampKey
-  - ใช้ build_sig_closing_with_image() แทน sig_closing() เมื่อมี signature/stamp
-  - Backward compatible 100% — ถ้าไม่ส่ง keys → ทำงานเหมือนเดิม
+  - ใช้ build_sig_closing_with_image() แทน sig_closing()
+
+★ v3 (24/04/69) [S41] — Defense-in-Depth Field Aliases:
+  รับ field ได้ทั้งชื่อเก่าและชื่อใหม่จาก GAS:
+    title              ← title | subject | letterSubject  (fallback 3 ชั้น)
+    recipientName      ← recipientName | letterRecipient | recipient
+    bodyParagraphs     ← bodyParagraphs | letterBody | body
+    signatureKey       ← signatureKey  (ถ้า useSignature=true → 'pitichai')
+    stampKey           ← stampKey | stampType
+  ถ้า GAS ยังไม่ได้ map → ฝั่ง Python ก็ยัง handle ได้ (defense)
 
 POST /generate_general_letter
-  Input: {
-    entityKey,        — sheet name เช่น "SCM T", "SCM C"
-    title,            — หัวข้อหนังสือ (กลาง, bold)
-    docNumber,        — เลขที่หนังสือ (บนซ้าย)
-    docDate,          — วันที่ เช่น "7 เมษายน พ.ศ.2569"
-    writtenAt,        — ทำที่ เช่น "บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด"
-    subject,          — เรื่อง
-    recipientName,    — เรียน
-    bodyParagraphs,   — เนื้อหา (string หลายย่อหน้า แบ่งด้วย \\n)
-    signerName,       — ชื่อผู้ลงนาม
-    signerPosition,   — ตำแหน่ง
-    signatureKey,     — [NEW v2] key ลายเซ็น เช่น 'pitichai' (optional)
-    stampKey,         — [NEW v2] key ตราประทับ เช่น 'scm_technologies' (optional)
-  }
+  Input (เลือกได้ตามชุดไหน):
+    entityKey, docNumber, docDate, writtenAt,
+    title | subject | letterSubject,
+    subject,
+    recipientName | letterRecipient | recipient,
+    bodyParagraphs | letterBody | body,
+    signerName, signerPosition,
+    signatureKey,                            — string key ของลายเซ็น
+    useSignature (bool) → signatureKey='pitichai' (ถ้าเดินเข้ามา),
+    stampKey | stampType,
   Output: { success, pdfBase64, fileName }
 
 ★ เนื้อหาเยอะ → ลายเซ็นเลื่อนลงตาม (WeasyPrint จัดให้อัตโนมัติ)
@@ -97,27 +101,79 @@ def _esc(s):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# [S41 v3] HELPER — Pick first non-empty value from multiple aliases
+# ══════════════════════════════════════════════════════════════════════
+
+def _pick(data, *keys):
+    """
+    คืนค่าแรกที่ไม่ว่างจาก keys ที่ระบุ (Defense-in-Depth)
+
+    Example:
+        recipient = _pick(data, 'recipientName', 'letterRecipient', 'recipient')
+        → คืนค่าแรกที่ข้อมูลไม่ว่าง หรือ '' ถ้าทั้งหมดว่าง
+    """
+    for k in keys:
+        v = data.get(k)
+        if v is not None and str(v).strip():
+            return v
+    return ''
+
+
+# ══════════════════════════════════════════════════════════════════════
 # BUILD HTML — layout เหมือนหนังสือขอถอน BG
 # ══════════════════════════════════════════════════════════════════════
 
 def _build_general_letter_html(data):
     """สร้าง HTML หนังสือทั่วไป — ใช้ class จาก build_css() ของ template_utils"""
+
     entity_key = str(data.get('entityKey', '') or '')
-    entity_name = data.get('writtenAt') or _resolve_entity_name(entity_key)
+    entity_name = _pick(data, 'writtenAt') or _resolve_entity_name(entity_key)
 
-    title       = _esc(data.get('title', 'หนังสือ'))
-    doc_number  = _esc(data.get('docNumber', ''))
-    doc_date    = _esc(data.get('docDate', '') or _today_th())
-    subject     = _esc(data.get('subject', ''))
-    recipient   = _esc(data.get('recipientName', ''))
-    signer_name = data.get('signerName', '')
-    signer_pos  = data.get('signerPosition', 'Corporate Lawyers')
+    # ─────────────────────────────────────────────────────────────────
+    # [S41 v3] Defense-in-Depth: รับ field ได้ทั้งชื่อเก่าและใหม่
+    # ─────────────────────────────────────────────────────────────────
 
-    # ★ v2 — รับ signature + stamp keys (optional)
-    # ── signatureKey: เช่น 'pitichai' | None = ไม่ใส่
-    # ── stampKey: เช่น 'scm_technologies' | None = ไม่ใส่
-    sig_key   = str(data.get('signatureKey', '') or '').strip() or None
-    stamp_key = str(data.get('stampKey', '') or '').strip() or None
+    # title: กลางเอกสาร (bold ใหญ่)
+    title = _pick(data, 'title', 'subject', 'letterSubject') or 'หนังสือทั่วไป'
+    title = _esc(title)
+
+    # doc_number / doc_date: เหมือนเดิม
+    doc_number = _esc(data.get('docNumber', ''))
+    doc_date = _esc(data.get('docDate', '') or _today_th())
+
+    # subject: "เรื่อง"
+    subject = _esc(_pick(data, 'subject', 'letterSubject'))
+
+    # recipientName: "เรียน" — รับได้ 3 ชื่อ
+    recipient = _esc(_pick(data, 'recipientName', 'letterRecipient', 'recipient'))
+
+    # signerName / signerPosition
+    signer_name = _pick(data, 'signerName', 'companySignerName', 'signer1')
+    signer_pos = data.get('signerPosition', '') or 'Corporate Lawyers'
+
+    # ─────────────────────────────────────────────────────────────────
+    # [S41 v3] signature_key: รองรับทั้ง signatureKey โดยตรง
+    #          + convert useSignature (bool) → signatureKey='pitichai'
+    # ─────────────────────────────────────────────────────────────────
+    sig_key = str(data.get('signatureKey', '') or '').strip() or None
+
+    # ★ ถ้าไม่มี signatureKey แต่มี useSignature=True → default pitichai
+    if not sig_key:
+        use_sig_raw = data.get('useSignature')
+        # รับหลายรูปแบบ: True, 'true', 'TRUE', 1
+        is_use_sig = (
+            use_sig_raw is True
+            or str(use_sig_raw).lower() == 'true'
+            or use_sig_raw == 1
+        )
+        if is_use_sig:
+            sig_key = 'pitichai'
+            logger.info('[S41] useSignature=true → signatureKey=pitichai (default)')
+
+    # ─────────────────────────────────────────────────────────────────
+    # [S41 v3] stamp_key: รับได้ทั้ง stampKey และ stampType
+    # ─────────────────────────────────────────────────────────────────
+    stamp_key = str(_pick(data, 'stampKey', 'stampType')).strip() or None
 
     # Validate — ถ้า key ผิด → log warning แต่ไม่ fail (fallback = ไม่ใส่)
     sig_ok, sig_err = validate_signature_key(sig_key)
@@ -129,8 +185,10 @@ def _build_general_letter_html(data):
         logger.warning(f'general_letter stamp_key error: {stamp_err}')
         stamp_key = None
 
-    # ── เนื้อหา: แบ่งย่อหน้าด้วย \n ──
-    body_raw = str(data.get('bodyParagraphs', '') or '').strip()
+    # ─────────────────────────────────────────────────────────────────
+    # [S41 v3] body: รับได้ 3 ชื่อ — bodyParagraphs / letterBody / body
+    # ─────────────────────────────────────────────────────────────────
+    body_raw = str(_pick(data, 'bodyParagraphs', 'letterBody', 'body')).strip()
     if body_raw:
         paras = [p.strip() for p in body_raw.split('\n') if p.strip()]
     else:
@@ -138,11 +196,9 @@ def _build_general_letter_html(data):
 
     body_html = '\n'.join(f'  <p class="para">{_esc(p)}</p>' for p in paras)
 
-    # ★ v2 — เลือก sig closing: มี image หรือไม่?
-    # ── ถ้ามี signer_name:
-    #     ★ ถ้า sig_key หรือ stamp_key → ใช้ build_sig_closing_with_image
-    #     ★ ถ้าไม่ → ใช้ sig_closing เดิม (backward compat)
-    # ── ถ้าไม่มี signer_name → ไม่มี sig block (เหมือน v1)
+    # ─────────────────────────────────────────────────────────────────
+    # Sig closing: เลือก variant ตามว่ามี signature/stamp หรือไม่
+    # ─────────────────────────────────────────────────────────────────
     if signer_name:
         if sig_key or stamp_key:
             sig_html = build_sig_closing_with_image(
@@ -156,7 +212,15 @@ def _build_general_letter_html(data):
     else:
         sig_html = ''
 
-    # ── สร้าง page HTML (ใช้ class จาก template_utils build_css) ──
+    # ─────────────────────────────────────────────────────────────────
+    # Log final payload (debug)
+    # ─────────────────────────────────────────────────────────────────
+    logger.info(
+        f'[S41] GL resolved: title={title[:30]} | recipient={recipient[:30]} | '
+        f'body_len={len(body_raw)} | sig={sig_key or "-"} | stamp={stamp_key or "-"}'
+    )
+
+    # ── สร้าง page HTML ──
     css = build_css()
     page = f"""<div class="page">
   {'<div class="doc-number">เลขที่ ' + doc_number + '</div>' if doc_number else ''}
@@ -208,11 +272,12 @@ def register_general_letter_routes(app):
                 return jsonify({'success': False, 'message': 'No JSON body'}), 400
 
             pdf_bytes = generate_general_letter_pdf(data)
-            pdf_b64   = base64.b64encode(pdf_bytes).decode('utf-8')
+            pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
 
-            # ชื่อไฟล์จาก title
+            # ชื่อไฟล์จาก title (fallback: subject → letter)
+            title_raw = _pick(data, 'title', 'subject', 'letterSubject') or 'letter'
             safe_title = ''.join(
-                ch for ch in (data.get('title', 'letter') or 'letter')[:40]
+                ch for ch in str(title_raw)[:40]
                 if ch.isalnum() or ch in '_- ' or '\u0e00' <= ch <= '\u0e7f'
             ).strip() or 'letter'
             filename = f'{safe_title}.pdf'
