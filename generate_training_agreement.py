@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v7-s15
+# VERSION: v8-s48.5
 """
 generate_training_agreement.py — สัญญาเข้าศึกษา / ฝึกอบรม / สอบ
 ═══════════════════════════════════════════════════════════════════
@@ -12,6 +12,14 @@ generate_training_agreement.py — สัญญาเข้าศึกษา / 
   - [FIX] หน้า 2 เพิ่ม margin-top ข้อ 7 ไม่ชิดบน
   - [FIX] layout ทั้งฉบับ — spacing, padding
   - @font-face embed THSarabunNew + margin-top 17mm
+
+★ S48.5 v8 changes (2026-04-27):
+  - [NEW] _fmt_money() helper — format ตัวเลขเงินให้มี comma คั่นพัน
+        Examples: 3177.57 → 3,177.57  |  1234567.89 → 1,234,567.89
+  - [FIX] t_cost ส่งผ่าน _fmt_money() ก่อน render → "3,177.57 บาท"
+        (เดิม "3177.57 บาท" — ไม่มี comma คั่นหลักพัน)
+  - [NEW] เพิ่ม "รหัสพนักงาน" — แสดงคู่กับ "เลขประจำตัวประชาชน" ในแถวเดียว
+        Layout: เลขบัตร [colspan=1] + รหัสพนักงาน [colspan=1]
 """
 
 import base64
@@ -26,8 +34,46 @@ logger = logging.getLogger(__name__)
 
 
 def _esc(s):
+    """HTML-escape input → ป้องกัน XSS injection ใน PDF"""
     return (str(s or '').replace('&','&amp;').replace('<','&lt;')
             .replace('>','&gt;').replace('"','&quot;'))
+
+
+def _fmt_money(v):
+    """
+    Format ตัวเลขเงิน → "1,234,567.89" (มี comma คั่นพัน + 2 ทศนิยม)
+
+    [S48.5 2026-04-27] Money formatter เพื่อให้ PDF แสดงเลขเงินถูกรูปแบบไทย
+
+    Args:
+        v: input value (string, int, float, หรือ None)
+
+    Returns:
+        str: formatted "1,234.56" หรือ '' ถ้า v ว่าง / 0 / invalid
+
+    Examples:
+        _fmt_money("3177.57")    → "3,177.57"
+        _fmt_money(1234567.89)   → "1,234,567.89"
+        _fmt_money("3,177.57")   → "3,177.57"  (handle existing commas)
+        _fmt_money("")           → ""
+        _fmt_money(None)         → ""
+        _fmt_money("abc")        → "abc"  (defensive — return ค่าเดิม ไม่แตก PDF)
+    """
+    if v is None or v == '':
+        return ''
+    try:
+        # Strip existing commas (กรณี client ส่งมา formatted แล้ว — ป้องกัน double-format)
+        clean = str(v).replace(',', '').strip()
+        if not clean:
+            return ''
+        n = float(clean)
+        if n == 0:
+            return ''
+        # Format ด้วย thousand separator + 2 decimal places
+        return f"{n:,.2f}"
+    except (ValueError, TypeError):
+        # ถ้า parse ไม่ได้ → return ค่าเดิม (defensive — ไม่แตก PDF)
+        return str(v)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -35,6 +81,12 @@ def _esc(s):
 # ══════════════════════════════════════════════════════════════════════
 
 def _build_training_css():
+    """
+    Build CSS string รวม @font-face embed สำหรับ TH Sarabun New
+
+    หมายเหตุ: ต้อง embed font ใน CSS เพราะ WeasyPrint อาจหา font path ใน Render
+    ไม่เจอ — ใช้ base64 data URL = portable + reliable
+    """
     fonts = font_b64()
     reg  = fonts.get('THSarabunNew.ttf', '')
     bold = fonts.get('THSarabunNew-Bold.ttf', '')
@@ -99,18 +151,36 @@ def _build_training_css():
 # ══════════════════════════════════════════════════════════════════════
 
 def _sig_cell(label, name):
+    """
+    Build signature cell — มีชื่อ → แสดงในวงเล็บ, ไม่มี → ไม่ใส่จุด
+
+    Args:
+        label: ป้ายกำกับใต้เส้น (เช่น "นายจ้าง/บริษัทฯ", "พนักงาน")
+        name: ชื่อจริง (ถ้ามี)
+    """
     e = _esc
     nm_html = f'<div class="ta-sig-nm">({e(name)})</div>' if name else ''
     return f'<td><div class="ta-sig-pre">ลงชื่อ</div><div class="ta-sig-line"></div><div class="ta-sig-lbl">{label}</div>{nm_html}</td>'
 
+
 def _build_sig_html(data):
+    """
+    Build signature section — 3 rows × 2 cols ใน ta-tbl
+
+    Layout:
+        Row 1: นายจ้าง/บริษัทฯ          | นายจ้าง/บริษัทฯ (คนที่ 2)*
+        Row 2: พนักงาน                  | หัวหน้างาน
+        Row 3: พยาน                     | พยาน
+
+    *Row 1 cell 2: ถ้าไม่มี signer 2 → ปล่อย <td></td> ว่าง
+    """
     co1 = data.get('companySignerName', '')
     co2 = data.get('companySignerName2', '')
     emp = data.get('employeeSignerName', data.get('employeeName', ''))
     sup = data.get('supervisorName', '')
     w1  = data.get('witness1Name', '')
     w2  = data.get('witness2Name', '')
-    # ★ v7-s15: ใช้ <tr> rows ตรงๆ (อยู่ใน ta-tbl แล้ว)
+    # ★ v7-s15: ใช้ <tr> rows ตรงๆ (อยู่ใน ta-tbl แล้ว — ห้าม wrap ใน <table> ใหม่)
     h = '<tr class="ta-sig">' + _sig_cell('นายจ้าง/บริษัทฯ', co1)
     h += _sig_cell('นายจ้าง/บริษัทฯ (คนที่ 2)', co2) if co2 else '<td></td>'
     h += '</tr><tr class="ta-sig">' + _sig_cell('พนักงาน', emp) + _sig_cell('หัวหน้างาน', sup)
@@ -123,6 +193,17 @@ def _build_sig_html(data):
 # ══════════════════════════════════════════════════════════════════════
 
 def _build_training_html(data):
+    """
+    Build complete HTML สำหรับ Training Agreement PDF
+
+    Args:
+        data: dict จาก request.get_json() — มี keys ตาม payload จาก GAS
+              (entityKey, docNumber, companyName, employeeName, employeeCode,
+               employeeIdCard, courseName, trainingCost, trainingCostText, ฯลฯ)
+
+    Returns:
+        str: HTML string พร้อม render เป็น PDF
+    """
     e = _esc
     doc_number   = e(data.get('docNumber', ''))
     company      = e(data.get('companyName', ''))
@@ -132,12 +213,16 @@ def _build_training_html(data):
     emp_dept     = e(data.get('employeeDepartment', ''))
     emp_age      = e(data.get('employeeAge', ''))
     emp_id       = e(data.get('employeeIdCard', ''))
+    emp_code     = e(data.get('employeeCode', ''))   # ★ S48.5: รหัสพนักงาน
     emp_addr     = e(data.get('employeeAddress', ''))
     course       = e(data.get('courseName', ''))
     t_date       = e(data.get('trainingDate', ''))
     t_month      = e(data.get('trainingMonth', ''))
     t_year       = e(data.get('trainingYear', ''))
-    t_cost       = e(data.get('trainingCost', ''))
+    # ★ S48.5: format trainingCost → "3,177.57" (มี comma)
+    #   - server-side fix แม้ GAS จะ format มาให้แล้วก็ปลอดภัย (defense in depth)
+    #   - _fmt_money handle ทั้ง raw "3177.57" และ formatted "3,177.57"
+    t_cost       = e(_fmt_money(data.get('trainingCost', '')))
     t_cost_txt   = e(data.get('trainingCostText', ''))
     c_date       = e(data.get('contractDate', ''))
     c_month      = e(data.get('contractMonth', ''))
@@ -158,7 +243,7 @@ def _build_training_html(data):
     <table class="ta-fields">
       <tr><td class="lbl">นาย / นาง / นางสาว</td><td class="val">{emp_name}</td><td class="lbl">ตำแหน่ง</td><td class="val">{emp_pos}</td></tr>
       <tr><td class="lbl">แผนก</td><td class="val">{emp_dept}</td><td class="lbl">อายุ</td><td class="val" style="max-width:12mm">{emp_age}</td></tr>
-      <tr><td class="lbl">เลขประจำตัวประชาชน</td><td class="val" colspan="3">{emp_id}</td></tr>
+      <tr><td class="lbl">เลขประจำตัวประชาชน</td><td class="val">{emp_id}</td><td class="lbl">รหัสพนักงาน</td><td class="val">{emp_code}</td></tr>
       <tr><td class="lbl">ที่อยู่</td><td class="val" colspan="3">{emp_addr}</td></tr>
     </table>
     <p class="ta-intro" style="margin-top:1mm">ซึ่งต่อไปในสัญญาจะเรียกว่า <b>"พนักงาน"</b> อีกฝ่ายหนึ่ง</p>
@@ -192,11 +277,28 @@ def _build_training_html(data):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# PDF MERGE
+# PDF MERGE — Multi-page overlay บน entity template
 # ══════════════════════════════════════════════════════════════════════
 
 def _merge_multi_page(content_bytes, entity_key):
-    """Overlay ทุกหน้าของ content บน entity template"""
+    """
+    Overlay ทุกหน้าของ content บน entity template (logo + watermark)
+
+    Process:
+        1. Load entity template (เช่น bg_template_scmtech.pdf)
+        2. สำหรับแต่ละหน้าของ content PDF:
+           - Clone template page เป็น background
+           - Rename TH Sarabun font → THSarabunNewCTN (ป้องกัน font conflict)
+           - Merge content บน background
+        3. Write merged PDF
+
+    Args:
+        content_bytes: PDF bytes ที่ render จาก HTML (ไม่มี logo)
+        entity_key: SCM entity key (เช่น 'bc', 'scmt', 'fahcloud')
+
+    Returns:
+        bytes: PDF ที่มี entity template เป็น background + content overlay
+    """
     from io import BytesIO
     from pypdf import PdfReader, PdfWriter
     from pypdf.generic import NameObject
@@ -208,8 +310,10 @@ def _merge_multi_page(content_bytes, entity_key):
     tpl_path = os.path.join(base, tpl_name)
 
     if not os.path.exists(tpl_path):
+        # Fallback: ใช้ template default ถ้า entity-specific หายไป
         tpl_path = os.path.join(base, 'bg_template_scmtech.pdf')
     if not os.path.exists(tpl_path):
+        # Fallback ขั้นสุดท้าย: คืน content เปล่าๆ ไม่มี template
         return content_bytes
 
     content_reader = PdfReader(BytesIO(content_bytes))
@@ -220,6 +324,9 @@ def _merge_multi_page(content_bytes, entity_key):
         bg = tpl_reader.pages[0]
 
         # ★ v7-s15 FIX: rename font ใน CONTENT (ไม่ใช่ template)
+        #   เหตุผล: WeasyPrint embed font ชื่อ "THSarabunNew" — ถ้า template
+        #   มี font ชื่อเดียวกันแต่ glyph map ต่าง → ตัวอักษรไทยเพี้ยน
+        #   วิธีแก้: rename content font → "THSarabunNewCTN" (unique name)
         content_fonts = page.get("/Resources", {}).get("/Font", {})
         for key in list(content_fonts.keys()):
             try:
@@ -246,6 +353,8 @@ def _merge_multi_page(content_bytes, entity_key):
                         if "THSarabunNew" in fn and "CTN" not in fn:
                             fd[NameObject("/FontName")] = NameObject("/" + fn.replace("THSarabunNew", "THSarabunNewCTN").lstrip("/"))
             except Exception:
+                # Defensive: ถ้า font rename fail → skip + render ต่อ
+                # (อาจมี font อื่นที่ไม่ใช่ TH Sarabun ก็ปล่อยผ่าน)
                 pass
 
         bg.merge_page(page)
@@ -261,6 +370,17 @@ def _merge_multi_page(content_bytes, entity_key):
 # ══════════════════════════════════════════════════════════════════════
 
 def register_training_agreement_routes(app):
+    """
+    Register Flask route สำหรับ Training Agreement endpoint
+
+    Endpoint: POST /generate_training_agreement
+    Headers: X-API-Key (required ถ้าตั้งใน Render env)
+    Body: JSON payload จาก GAS — ดู _build_training_html() สำหรับ keys ที่ใช้
+
+    Returns:
+        success: { success: True, pdfBase64, fileName }
+        failure: { success: False, message } + HTTP 400/500
+    """
     @app.route('/generate_training_agreement', methods=['POST'])
     def api_generate_training_agreement():
         try:
@@ -278,6 +398,7 @@ def register_training_agreement_routes(app):
             pdf_bytes = _merge_multi_page(content_bytes, entity_key)
             pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
 
+            # Sanitize filename — keep ASCII + Thai + safe chars only
             emp = (data.get('employeeName', '') or 'training')[:30]
             safe_name = ''.join(
                 ch for ch in emp
