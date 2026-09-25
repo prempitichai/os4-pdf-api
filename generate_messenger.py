@@ -523,10 +523,7 @@ def generate_messenger_pdf(data):
     VSEC_BOT = 264
     VRT_DIV  = 303    # vertical divider x: left=checkboxes, right=date/PR
 
-    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
-    cv.rect(LX, Y(VSEC_BOT), RX - LX, VSEC_BOT - VSEC_TOP, fill=0, stroke=1)
-    cv.line(VRT_DIV, Y(VSEC_TOP), VRT_DIV, Y(VSEC_BOT))
-    cv.setLineWidth(1.0)
+    # (no border box — underlines on each field are sufficient)
 
     # ── Vehicle type: t=188 ───────────────────────────────────────────────
     veh = d.get('vehicleType', 'car')
