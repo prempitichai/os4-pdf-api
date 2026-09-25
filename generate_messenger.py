@@ -344,47 +344,56 @@ def _draw_doc_table(cv, items, t_start, t_end):
     cv.line(COL_NUM, Y(t_start), COL_NUM, h_bot)
     cv.line(COL_QTY, Y(t_start), COL_QTY, h_bot)
 
-    # ── Rows ──────────────────────────────────────────────────────────────────
+    # ── Data rows ─────────────────────────────────────────────────────────────
     row_items = items[:max_rows]
-    for i, item in enumerate(row_items):
+    for i in range(max_rows):
         r_bot = Y(t_start + HEADER_H + (i + 1) * ROW_H)
         r_top = r_bot + ROW_H
 
-        if i % 2 == 1:
-            cv.setFillColor(HexColor('#f4f5ff'))
-            cv.rect(LX, r_bot, RX - LX, ROW_H, fill=1, stroke=0)
+        if i < len(row_items):
+            # filled row
+            if i % 2 == 1:
+                cv.setFillColor(HexColor('#f4f5ff'))
+                cv.rect(LX, r_bot, RX - LX, ROW_H, fill=1, stroke=0)
+            cv.setStrokeColor(HexColor('#e0e0e8')); cv.setLineWidth(0.3)
+            cv.line(LX, r_bot, RX, r_bot)
+            cv.line(COL_NUM, r_top, COL_NUM, r_bot)
+            cv.line(COL_QTY, r_top, COL_QTY, r_bot)
 
-        cv.setStrokeColor(HexColor('#e0e0e8')); cv.setLineWidth(0.3)
-        cv.line(LX, r_bot, RX, r_bot)
-        cv.line(COL_NUM, r_top, COL_NUM, r_bot)
-        cv.line(COL_QTY, r_top, COL_QTY, r_bot)
+            text_y = r_bot + (ROW_H - FS_TBL) / 2
 
-        text_y = r_bot + (ROW_H - FS_TBL) / 2
+            cv.setFont(F, FS_TBL); cv.setFillColor(C)
+            ns = str(i + 1)
+            nw = cv.stringWidth(ns, F, FS_TBL)
+            cv.drawString(LX + (COL_NUM - LX - nw) / 2, text_y, ns)
 
-        # ลำดับ (centered)
-        cv.setFont(F, FS_TBL); cv.setFillColor(C)
-        ns = str(i + 1)
-        nw = cv.stringWidth(ns, F, FS_TBL)
-        cv.drawString(LX + (COL_NUM - LX - nw) / 2, text_y, ns)
+            max_w = COL_QTY - COL_NUM - 12
+            txt = _s(row_items[i])
+            # word-level truncate: snap to last space
+            if cv.stringWidth(txt, F, FS_TBL) > max_w:
+                while len(txt) > 1 and cv.stringWidth(txt, F, FS_TBL) > max_w:
+                    txt = txt[:-1]
+                sp = txt.rfind(' ')
+                if sp > len(txt) // 3:
+                    txt = txt[:sp]
+            cv.setFont(F, FS_TBL); cv.setFillColor(CF)
+            cv.drawString(COL_NUM + 6, text_y, txt)
 
-        # รายการเอกสาร (truncate to fit)
-        max_w = COL_QTY - COL_NUM - 12
-        txt = _s(item)
-        while len(txt) > 1 and cv.stringWidth(txt, F, FS_TBL) > max_w:
-            txt = txt[:-1]
-        cv.setFont(F, FS_TBL); cv.setFillColor(CF)
-        cv.drawString(COL_NUM + 6, text_y, txt)
+            cv.setFont(F, FS_TBL); cv.setFillColor(C)
+            qs = '1'
+            qw = cv.stringWidth(qs, F, FS_TBL)
+            cv.drawString(COL_QTY + (RX - COL_QTY - qw) / 2, text_y, qs)
+        else:
+            # empty filler row — แสดง grid เบาๆ เพื่อ fill space
+            cv.setStrokeColor(HexColor('#eceeff')); cv.setLineWidth(0.2)
+            cv.line(LX, r_bot, RX, r_bot)
+            cv.line(COL_NUM, r_top, COL_NUM, r_bot)
+            cv.line(COL_QTY, r_top, COL_QTY, r_bot)
 
-        # จำนวน (centered, default 1)
-        cv.setFont(F, FS_TBL); cv.setFillColor(C)
-        qs = '1'
-        qw = cv.stringWidth(qs, F, FS_TBL)
-        cv.drawString(COL_QTY + (RX - COL_QTY - qw) / 2, text_y, qs)
-
-    # ── Outer border ──────────────────────────────────────────────────────────
-    actual_h = HEADER_H + len(row_items) * ROW_H
+    # ── Outer border (full allocated height) ──────────────────────────────────
+    full_h = HEADER_H + max_rows * ROW_H
     cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.7)
-    cv.rect(LX, Y(t_start + actual_h), RX - LX, actual_h, fill=0, stroke=1)
+    cv.rect(LX, Y(t_start + full_h), RX - LX, full_h, fill=0, stroke=1)
     cv.setLineWidth(1.0)
 
 
@@ -638,9 +647,14 @@ def generate_messenger_pdf(data):
         dot_x_a = LX + 8 + lw_a + 4
         mw_a = RX - dot_x_a - 2
         fit1 = addr_full
-        while len(fit1) > 1 and cv.stringWidth(fit1, F, FS_DAT) > mw_a:
-            fit1 = fit1[:-1]
-        rest = addr_full[len(fit1):]
+        if cv.stringWidth(fit1, F, FS_DAT) > mw_a:
+            while len(fit1) > 1 and cv.stringWidth(fit1, F, FS_DAT) > mw_a:
+                fit1 = fit1[:-1]
+            # snap to word boundary (last space)
+            sp = fit1.rfind(' ')
+            if sp > len(fit1) // 3:
+                fit1 = fit1[:sp]
+        rest = addr_full[len(fit1):].lstrip()
         _loc_field(cv, LX + 8, 614, 'ที่อยู่ :', fit1)
         if rest:
             _dots(cv, LX + 8, 632 + 4, RX)
