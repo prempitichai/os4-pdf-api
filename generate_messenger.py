@@ -632,17 +632,16 @@ def generate_messenger_pdf(data):
 
     # ที่อยู่ (t=614 + overflow t=632) — fallback to old field name 'locationDetail'
     addr_full = _s(d.get('locationAddress', d.get('locationDetail')))
-    _loc_field(cv, LX + 8, 614, 'ที่อยู่ :', addr_full)
-    # overflow line 2 — ถ้า address ยาว
     if addr_full:
+        # คำนวณ fit1 ก่อน แล้วส่งแค่ fit1 ไปวาด (ป้องกัน text ซ้อนบน line 1)
         lw_a = cv.stringWidth('ที่อยู่ :', F, 11)
         dot_x_a = LX + 8 + lw_a + 4
         mw_a = RX - dot_x_a - 2
-        mw_rest = RX - LX - 8 - 2
         fit1 = addr_full
         while len(fit1) > 1 and cv.stringWidth(fit1, F, FS_DAT) > mw_a:
             fit1 = fit1[:-1]
         rest = addr_full[len(fit1):]
+        _loc_field(cv, LX + 8, 614, 'ที่อยู่ :', fit1)
         if rest:
             _dots(cv, LX + 8, 632 + 4, RX)
             rw = cv.stringWidth(rest, F, FS_DAT)
@@ -650,6 +649,8 @@ def generate_messenger_pdf(data):
             cv.rect(LX + 8, Y(632) - 2, rw + 4, FS_DAT + 3, fill=1, stroke=0)
             cv.setFont(F, FS_DAT); cv.setFillColor(CF)
             cv.drawString(LX + 8, Y(632), rest)
+    else:
+        _loc_field(cv, LX + 8, 614, 'ที่อยู่ :', '')
 
     # ผู้ติดต่อ / โทร split (t=651) — fallback to old field names
     T_CT = 651
