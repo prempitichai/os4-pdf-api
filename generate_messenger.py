@@ -523,11 +523,8 @@ def generate_messenger_pdf(data):
     VSEC_BOT = 264
     VRT_DIV  = 303    # vertical divider x: left=checkboxes, right=date/PR
 
-    cv.setFillColor(HexColor('#f7f8ff'))
-    cv.rect(LX, Y(VSEC_BOT), RX - LX, VSEC_BOT - VSEC_TOP, fill=1, stroke=0)
     cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
     cv.rect(LX, Y(VSEC_BOT), RX - LX, VSEC_BOT - VSEC_TOP, fill=0, stroke=1)
-    # Vertical divider
     cv.line(VRT_DIV, Y(VSEC_TOP), VRT_DIV, Y(VSEC_BOT))
     cv.setLineWidth(1.0)
 
