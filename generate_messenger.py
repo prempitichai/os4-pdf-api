@@ -517,7 +517,8 @@ def generate_messenger_pdf(data):
     veh = d.get('vehicleType', 'car')
     _veh    = str(veh or 'car').lower().strip()
     is_car  = _veh in ['car', 'รถยนต์']
-    is_moto = _veh in ['motorcycle', 'motorbike', 'รถมอเตอร์ไซด์', 'รถมอเตอร์']
+    is_moto = _veh in ['motorcycle', 'motorbike', 'รถมอเตอร์ไซค์', 'รถมอเตอร์ไซด์',
+                   'รถมอเตอร์', 'มอเตอร์ไซค์', 'มอเตอร์ไซด์', 'motocycle']
     if not is_car and not is_moto:
         is_car = True
 
