@@ -630,11 +630,10 @@ def generate_messenger_pdf(data):
     _loc_field(cv, LX + 8, 593, 'บริษัท / สถานที่ :',
                _s(d.get('locationCompany', d.get('location'))))
 
-    # ที่อยู่ (t=614 + overflow t=632)
-    _loc_field(cv, LX + 8, 614, 'ที่อยู่ :',
-               _s(d.get('locationAddress')))
+    # ที่อยู่ (t=614 + overflow t=632) — fallback to old field name 'locationDetail'
+    addr_full = _s(d.get('locationAddress', d.get('locationDetail')))
+    _loc_field(cv, LX + 8, 614, 'ที่อยู่ :', addr_full)
     # overflow line 2 — ถ้า address ยาว
-    addr_full = _s(d.get('locationAddress'))
     if addr_full:
         lw_a = cv.stringWidth('ที่อยู่ :', F, 11)
         dot_x_a = LX + 8 + lw_a + 4
@@ -652,13 +651,13 @@ def generate_messenger_pdf(data):
             cv.setFont(F, FS_DAT); cv.setFillColor(CF)
             cv.drawString(LX + 8, Y(632), rest)
 
-    # ผู้ติดต่อ / โทร split (t=651)
+    # ผู้ติดต่อ / โทร split (t=651) — fallback to old field names
     T_CT = 651
     CT_MID = LX + (RX - LX) * 0.52
     _loc_field(cv, LX + 8, T_CT, 'ผู้ติดต่อ :',
-               _s(d.get('locationContact')), end_x=CT_MID - 4)
+               _s(d.get('locationContact', d.get('contactPerson'))), end_x=CT_MID - 4)
     _loc_field(cv, CT_MID + 2, T_CT, 'โทร :',
-               _s(d.get('locationPhone')))
+               _s(d.get('locationPhone', d.get('contactPhone'))))
 
     # Separator before signature section
     _sep(cv, 672, color=C_BAND_BDR, lw=1.0)
