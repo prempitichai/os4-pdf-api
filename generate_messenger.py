@@ -124,7 +124,9 @@ def Y(t):
 
 def _s(v, d=''):
     s = str(v or '').strip()
-    # replace box/checkbox Unicode chars the Thai font can't render
+    # newlines from textarea → separator
+    s = s.replace('\r\n', ' / ').replace('\r', ' / ').replace('\n', ' / ')
+    # box/checkbox Unicode chars the Thai font can't render
     for ch in ('☐', '☑', '☒', '□', '■', '▪', '▫'):
         s = s.replace(ch, ' / ')
     s = s.strip(' /')
@@ -292,6 +294,98 @@ def _flines_inline(cv, text, label_t, label_lw, extra_yt_list):
             cv.rect(LX - 1, Y(yt) - 2, tw + 4, FS_DAT + 3, fill=1, stroke=0)
             cv.setFont(F, FS_DAT); cv.setFillColor(CF)
             cv.drawString(LX, Y(yt) + 1, val)
+
+
+def _split_items(v):
+    """Split textarea value (newline-separated) into list."""
+    s = str(v or '').strip()
+    parts = [p.strip() for p in s.replace('\r\n', '\n').replace('\r', '\n').split('\n') if p.strip()]
+    return parts or ([s] if s else [])
+
+
+def _split_csv(v):
+    """Split comma-separated value into list."""
+    s = str(v or '').strip()
+    return [p.strip() for p in s.split(',') if p.strip()]
+
+
+def _draw_doc_table(cv, items, t_start, t_end):
+    """Draw numbered document table: ลำดับ | รายการเอกสาร | จำนวน (ฉบับ)"""
+    COL_NUM  = LX + 35
+    COL_QTY  = RX - 52
+    HEADER_H = 20
+    ROW_H    = 18
+    FS_TBL   = 9.5
+
+    max_rows = max(1, int((t_end - t_start - HEADER_H) / ROW_H))
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    h_bot = Y(t_start + HEADER_H)   # bottom-left y of header rect
+    cv.setFillColor(C_BAND)
+    cv.rect(LX, h_bot, RX - LX, HEADER_H, fill=1, stroke=0)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.6)
+    cv.rect(LX, h_bot, RX - LX, HEADER_H, fill=0, stroke=1)
+
+    hdr_text_y = h_bot + (HEADER_H - FS_TBL) / 2
+    cv.setFont(FB, FS_TBL); cv.setFillColor(C_ACCENT)
+
+    lbl_n = 'ลำดับ'
+    nw = cv.stringWidth(lbl_n, FB, FS_TBL)
+    cv.drawString(LX + (COL_NUM - LX - nw) / 2, hdr_text_y, lbl_n)
+
+    cv.drawString(COL_NUM + 6, hdr_text_y, 'รายการเอกสาร')
+
+    lbl_q = 'จำนวน (ฉบับ)'
+    qw = cv.stringWidth(lbl_q, FB, FS_TBL)
+    cv.drawString(COL_QTY + (RX - COL_QTY - qw) / 2, hdr_text_y, lbl_q)
+
+    # Vertical dividers in header
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(COL_NUM, Y(t_start), COL_NUM, h_bot)
+    cv.line(COL_QTY, Y(t_start), COL_QTY, h_bot)
+
+    # ── Rows ──────────────────────────────────────────────────────────────────
+    row_items = items[:max_rows]
+    for i, item in enumerate(row_items):
+        r_bot = Y(t_start + HEADER_H + (i + 1) * ROW_H)
+        r_top = r_bot + ROW_H
+
+        if i % 2 == 1:
+            cv.setFillColor(HexColor('#f4f5ff'))
+            cv.rect(LX, r_bot, RX - LX, ROW_H, fill=1, stroke=0)
+
+        cv.setStrokeColor(HexColor('#e0e0e8')); cv.setLineWidth(0.3)
+        cv.line(LX, r_bot, RX, r_bot)
+        cv.line(COL_NUM, r_top, COL_NUM, r_bot)
+        cv.line(COL_QTY, r_top, COL_QTY, r_bot)
+
+        text_y = r_bot + (ROW_H - FS_TBL) / 2
+
+        # ลำดับ (centered)
+        cv.setFont(F, FS_TBL); cv.setFillColor(C)
+        ns = str(i + 1)
+        nw = cv.stringWidth(ns, F, FS_TBL)
+        cv.drawString(LX + (COL_NUM - LX - nw) / 2, text_y, ns)
+
+        # รายการเอกสาร (truncate to fit)
+        max_w = COL_QTY - COL_NUM - 12
+        txt = _s(item)
+        while len(txt) > 1 and cv.stringWidth(txt, F, FS_TBL) > max_w:
+            txt = txt[:-1]
+        cv.setFont(F, FS_TBL); cv.setFillColor(CF)
+        cv.drawString(COL_NUM + 6, text_y, txt)
+
+        # จำนวน (centered, default 1)
+        cv.setFont(F, FS_TBL); cv.setFillColor(C)
+        qs = '1'
+        qw = cv.stringWidth(qs, F, FS_TBL)
+        cv.drawString(COL_QTY + (RX - COL_QTY - qw) / 2, text_y, qs)
+
+    # ── Outer border ──────────────────────────────────────────────────────────
+    actual_h = HEADER_H + len(row_items) * ROW_H
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.7)
+    cv.rect(LX, Y(t_start + actual_h), RX - LX, actual_h, fill=0, stroke=1)
+    cv.setLineWidth(1.0)
 
 
 def _rcol_field(cv, lx, yt, label, val, end_x):
@@ -515,19 +609,17 @@ def generate_messenger_pdf(data):
     # Separator before content sections
     _sep(cv, 300)
 
-    # ── รายละเอียดของงาน: label t=313, lines t=[344,375,406,437,468] ────
+    # ── รายละเอียดของงาน: label t=313, table t=326–464 ──────────────────
     _accent_bar(cv, 313)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(313), 'รายละเอียดของงานที่ให้ไปรับ-ส่ง:')
-    _lbl_lw = cv.stringWidth('รายละเอียดของงานที่ให้ไปรับ-ส่ง:', FB, FS_LBL)
-    _flines_inline(cv, _s(d.get('jobDetail')), 313, _lbl_lw, [344, 375, 406, 437, 468])
+    _draw_doc_table(cv, _split_items(d.get('jobDetail')), 326, 464)
 
-    # ── สิ่งที่นำกลับ: label t=468, lines t=[504,539,575] ───────────────
+    # ── สิ่งที่นำกลับ: label t=468, table t=481–571 ─────────────────────
     _accent_bar(cv, 468)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(468), 'สิ่งที่นำกลับ :')
-    _lbl_ret_lw = cv.stringWidth('สิ่งที่นำกลับ :', FB, FS_LBL)
-    _flines_inline(cv, _s(d.get('returnItems')), 468, _lbl_ret_lw, [504, 539, 575])
+    _draw_doc_table(cv, _split_csv(d.get('returnItems')), 481, 571)
 
     # ── สถานที่: แบ่งช่องแยก (t=575–651) ────────────────────────────────────
     _accent_bar(cv, 575)
