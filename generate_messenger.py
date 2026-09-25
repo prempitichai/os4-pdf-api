@@ -2,7 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 generate_messenger.py — ใบสั่งงาน Messenger & Logistic
-★ v16 — แก้ layout ให้ตรงตาม PDF ต้นแบบที่อนุมัติแล้ว
+★ v17 — v16 + ปรับหน้าตาให้สวยงาม
+  - entity section band (light blue background)
+  - title accent underline
+  - section separator lines
+  - left accent bars สำหรับ section headers
+  - signature area background
   พิกัดทุกจุดวัดจาก PDF ต้นแบบโดยตรง (y ของ ReportLab = PH - y_pdf)
   - title        y_pdf=778.6 → t=63
   - entity row1  y_pdf=716.9 → t=125
@@ -102,6 +107,13 @@ CF  = HexColor('#1a237e')   # ค่าที่กรอก (น้ำเงิ
 CB  = HexColor('#bbbbbb')   # dots
 CL  = HexColor('#cccccc')   # footer
 
+# Design colors
+C_ACCENT  = HexColor('#1a237e')   # blue accent
+C_BAND    = HexColor('#eef0ff')   # entity/sig band fill
+C_BAND_SIG = HexColor('#f4f5ff')  # sig area fill
+C_BAND_BDR = HexColor('#c5cae9')  # band border
+C_SEP     = HexColor('#e0e0e8')   # separator line
+
 
 # ── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -141,24 +153,12 @@ def _fdots(cv, yt):
 
 
 def _flines(cv, text, yt_list, first_line_x=None):
-    """
-    วาด dot lines และ fill ข้อความ (wrap อัตโนมัติ)
-    [FIX v17] first_line_x: ถ้าระบุ → บรรทัดแรกเริ่ม text จาก x นั้น (inline กับ label)
-              บรรทัดถัดไปเริ่มจาก LX ตามปกติ
-    yt_list: รายการ t-values ของแต่ละบรรทัด
-    """
-    # บรรทัดแรก: ถ้า first_line_x ระบุ → วาด dots จาก LX ถึง RX ก่อน (เต็มบรรทัด)
-    # แล้ว clear area ตั้งแต่ first_line_x ไปทางซ้าย (label area) ด้วย white-box
-    # จากนั้น fill text ที่ first_line_x
-
     lines = []
     if text:
-        # คำนวณ wrap สำหรับบรรทัดแรก (width แคบกว่า เพราะ label กินที่)
         mw_first = RX - (first_line_x or LX) - 2
         mw_rest  = RX - LX - 2
         rem = str(text)
 
-        # บรรทัดแรก
         if first_line_x and rem:
             fit = rem
             while len(fit) > 1 and cv.stringWidth(fit, F, FS_DAT) > mw_first:
@@ -166,7 +166,6 @@ def _flines(cv, text, yt_list, first_line_x=None):
             lines.append(fit)
             rem = rem[len(fit):]
 
-        # บรรทัดที่เหลือ
         while rem and len(lines) < len(yt_list):
             fit = rem
             while len(fit) > 1 and cv.stringWidth(fit, F, FS_DAT) > mw_rest:
@@ -175,13 +174,11 @@ def _flines(cv, text, yt_list, first_line_x=None):
             rem = rem[len(fit):]
 
     for i, yt in enumerate(yt_list):
-        # กำหนด x เริ่มต้น content ในบรรทัดนี้
         cx = (first_line_x or LX) if i == 0 else LX
-        _fdots(cv, yt)   # วาด dots เต็มบรรทัดก่อนเสมอ
+        _fdots(cv, yt)
 
         if i < len(lines) and lines[i]:
             tw = cv.stringWidth(lines[i], F, FS_DAT)
-            # white-box ลบ dots บริเวณที่จะวาง text
             cv.setFillColor(white)
             cv.rect(cx - 1, Y(yt) - 2, tw + 4, FS_DAT + 3, fill=1, stroke=0)
             cv.setFont(F, FS_DAT)
@@ -190,11 +187,6 @@ def _flines(cv, text, yt_list, first_line_x=None):
 
 
 def _draw_checkmark(cv, x, ry, sz, color):
-    """
-    วาด ✓ ด้วย drawLines (รองรับฟอนต์ที่ไม่มี glyph U+2713)
-    x, ry: bottom-left ของ checkbox rect
-    sz: ขนาด checkbox
-    """
     cv.setStrokeColor(color)
     cv.setLineWidth(1.8)
     p1x = x + sz * 0.15;  p1y = ry + sz * 0.48
@@ -206,13 +198,8 @@ def _draw_checkmark(cv, x, ry, sz, color):
 
 
 def _chk(cv, x, yt, checked, label):
-    """
-    วาด checkbox + label
-    x: left edge ของ checkbox
-    yt: t value (ใช้กับ Y(yt) สำหรับ bottom ของ text)
-    """
     sz = 14
-    ry = Y(yt) - 2   # bottom-left ของ rect
+    ry = Y(yt) - 2
 
     cv.setLineWidth(1.0)
     if checked:
@@ -230,52 +217,50 @@ def _chk(cv, x, yt, checked, label):
     cv.drawString(x + sz + 5, ry + 1, label)
 
 
+def _loc_field(cv, lx, yt, label, val, end_x=None):
+    """Sub-field ในส่วน สถานที่: label สีเทา 11pt + dots + value ซ้าย"""
+    end_x = end_x or RX
+    C_SUB = HexColor('#666666')
+    cv.setFont(F, 11); cv.setFillColor(C_SUB)
+    cv.drawString(lx, Y(yt), label)
+    lw = cv.stringWidth(label, F, 11)
+    dot_x1 = lx + lw + 4
+    _dots(cv, dot_x1, yt + 4, end_x)
+    if val:
+        vw = cv.stringWidth(val, F, FS_DAT)
+        cv.setFillColor(white)
+        cv.rect(dot_x1 + 1, Y(yt) - 2, vw + 4, FS_DAT + 3, fill=1, stroke=0)
+        cv.setFont(F, FS_DAT); cv.setFillColor(CF)
+        cv.drawString(dot_x1 + 2, Y(yt), val)
+
+
 def _vdots(cv, x, yt, val, end_x):
-    """
-    [FIX v17] วาด dots เต็มบรรทัดจาก x → end_x ก่อน
-    แล้ว white-box ทับใต้ value เพื่อให้ value ไม่ทับ dots
-    ค่า val จะ float กึ่งกลางระหว่าง x ถึง end_x
-    """
-    # วาด dots เต็มก่อน
     _dots(cv, x, yt + 5, end_x)
     if not val:
         return
-    # คำนวณตำแหน่งกึ่งกลาง
     vw   = cv.stringWidth(val, F, FS_DAT)
     zone = end_x - x
-    vx   = x + (zone - vw) / 2  # center ใน zone
-    # white-box ลบ dots ใต้ value
+    vx   = x + (zone - vw) / 2
     cv.setFillColor(white)
     cv.rect(vx - 2, Y(yt) - 2, vw + 4, FS_DAT + 4, fill=1, stroke=0)
-    # วาด value
     cv.setFont(F, FS_DAT)
     cv.setFillColor(CF)
     cv.drawString(vx, Y(yt), val)
 
 
-
-
 def _flines_inline(cv, text, label_t, label_lw, extra_yt_list):
-    """
-    [FIX v17] เหมือน _flines แต่บรรทัดแรก fill ต่อจาก label ในแถวเดียวกัน
-    label_t    : t value ของแถว label
-    label_lw   : ความกว้าง label (pixels)
-    extra_yt_list: t values ของบรรทัดถัดไป (ไม่รวม label line)
-    """
-    mw_first = RX - (LX + label_lw + 8) - 2   # พื้นที่ด้านขวาของ label
+    mw_first = RX - (LX + label_lw + 8) - 2
     mw_rest  = RX - LX - 2
     lines    = []
 
     if text:
         rem = str(text)
-        # บรรทัดแรก: ใช้พื้นที่หลัง label
         if rem:
             fit = rem
             while len(fit) > 1 and cv.stringWidth(fit, F, FS_DAT) > mw_first:
                 fit = fit[:-1]
             lines.append(('first', fit))
             rem = rem[len(fit):]
-        # บรรทัดถัดไป: เต็มแถว
         while rem and len(lines) - 1 < len(extra_yt_list):
             fit = rem
             while len(fit) > 1 and cv.stringWidth(fit, F, FS_DAT) > mw_rest:
@@ -283,7 +268,6 @@ def _flines_inline(cv, text, label_t, label_lw, extra_yt_list):
             lines.append(('rest', fit))
             rem = rem[len(fit):]
 
-    # วาดบรรทัดแรก (ต่อจาก label)
     dot_x1_first = LX + label_lw + 8
     _dots(cv, dot_x1_first, label_t + 5, RX)
     if lines and lines[0][0] == 'first' and lines[0][1]:
@@ -294,7 +278,6 @@ def _flines_inline(cv, text, label_t, label_lw, extra_yt_list):
         cv.setFont(F, FS_DAT); cv.setFillColor(CF)
         cv.drawString(dot_x1_first + 2, Y(label_t), val0)
 
-    # วาดบรรทัดถัดไป
     rest_vals = [ln[1] for ln in lines if ln[0] == 'rest']
     for i, yt in enumerate(extra_yt_list):
         _fdots(cv, yt)
@@ -308,28 +291,33 @@ def _flines_inline(cv, text, label_t, label_lw, extra_yt_list):
 
 
 def _rcol_field(cv, lx, yt, label, val, end_x):
-    """
-    [FIX v17] วาด field แบบ right-column:
-      label ซ้าย → dots เต็มแถว → val วางกึ่งกลาง dots area (ไม่ทับ label)
-    """
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(lx, Y(yt), label)
     lw = cv.stringWidth(label, F, FS_LBL)
     dot_x1 = lx + lw + 4
     dot_x2 = end_x
-    # วาด dots เต็มพื้นที่ก่อน
     _dots(cv, dot_x1, yt + 5, dot_x2)
     if val:
-        # คำนวณตำแหน่งกึ่งกลาง dots area
         vw = cv.stringWidth(val, F, FS_DAT)
         mid_x = dot_x1 + (dot_x2 - dot_x1 - vw) / 2
-        # white rect ทับ dots ใต้ค่า (เพื่อไม่ให้ dots โชว์ทับ)
         cv.setFillColor(white)
         cv.rect(mid_x - 2, Y(yt) - 3, vw + 4, FS_DAT + 4, fill=1, stroke=0)
-        # วาดค่า
         cv.setFont(F, FS_DAT); cv.setFillColor(CF)
         cv.drawString(mid_x, Y(yt), val)
 
+
+def _sep(cv, t, color=None, lw=0.5):
+    """วาด separator line ที่ t"""
+    cv.setStrokeColor(color or C_SEP)
+    cv.setLineWidth(lw)
+    cv.line(LX, Y(t), RX, Y(t))
+    cv.setLineWidth(1.0)
+
+
+def _accent_bar(cv, t):
+    """วาด left accent bar (แถบสีน้ำเงิน) ซ้ายของ section header"""
+    cv.setFillColor(C_ACCENT)
+    cv.rect(42, Y(t) - 1, 4, 15, fill=1, stroke=0)
 
 
 # ════════════════════════════════════════════════════════════
@@ -339,7 +327,7 @@ def _rcol_field(cv, lx, yt, label, val, end_x):
 def generate_messenger_pdf(data):
     """
     สร้าง PDF ใบสั่งงาน Messenger & Logistic
-    Layout พิกัดวัดจาก PDF ต้นแบบ (v16)
+    Layout พิกัดวัดจาก PDF ต้นแบบ (v16) + visual polish (v17)
     """
     _register_fonts()
 
@@ -356,7 +344,6 @@ def generate_messenger_pdf(data):
         logger.debug(f"Watermark load ล้มเหลว: {e}")
 
     # ── Logo (top-right) ──────────────────────────────────────────────────
-    # ตาม PDF ต้นแบบ: logo อยู่บนขวา ห่างจากขอบ right ~50, top ~18
     try:
         logo = ImageReader(io.BytesIO(base64.b64decode(SCM_LOGO_B64)))
         cv.drawImage(logo, RX - 90, Y(18) - 45, width=90, height=45,
@@ -364,14 +351,33 @@ def generate_messenger_pdf(data):
     except Exception as e:
         logger.debug(f"Logo load ล้มเหลว: {e}")
 
+    # ── Background bands (วาดก่อน text ทั้งหมด) ──────────────────────────
+    # Entity section band (t=108 → t=170)
+    cv.setFillColor(C_BAND)
+    cv.rect(LX, Y(170), RX - LX, 62, fill=1, stroke=0)
+    cv.setStrokeColor(C_BAND_BDR)
+    cv.setLineWidth(0.5)
+    cv.line(LX, Y(108), RX, Y(108))
+    cv.line(LX, Y(170), RX, Y(170))
+
+    # Signature section band (t=676 → t=790)
+    cv.setFillColor(C_BAND_SIG)
+    cv.rect(LX, Y(790), RX - LX, 114, fill=1, stroke=0)
+
+    cv.setLineWidth(1.0)
+
     # ── Title: t=63 ───────────────────────────────────────────────────────
     cv.setFont(FB, FS_T)
     cv.setFillColor(C)
     cv.drawCentredString(PW / 2, Y(63), 'ใบสั่งงาน Messenger & Logistic')
 
+    # Title accent underline
+    cv.setStrokeColor(C_ACCENT)
+    cv.setLineWidth(1.5)
+    cv.line(LX + 30, Y(73), RX - 30, Y(73))
+    cv.setLineWidth(1.0)
+
     # ── Entity checkboxes ─────────────────────────────────────────────────
-    # พิกัดวัดจาก PDF: row1 y_pdf=716.9 → t=125, row2 y_pdf=688.9 → t=153
-    # label x: [69, 193, 317, 441]  checkbox x: label_x - 20
     ent = _s(d.get('entity'), '').lower().replace(' ', '').replace('-', '')
     _ENTITY_NORM = {
         'scmtech': 'scmtech', 'scmt': 'scmtech',
@@ -385,7 +391,6 @@ def generate_messenger_pdf(data):
     }
     ent = _ENTITY_NORM.get(ent, ent)
 
-    # x positions ของ label แต่ละ column (วัดจาก PDF)
     _LABEL_X = [69.0, 192.8, 316.6, 440.5]
     _ENT_ROW1 = [('SCM Tech', 'scmtech'), ('SCM S', 'scms'),
                  ('SCM C',    'scmc'),    ('Holding', 'holding')]
@@ -398,10 +403,10 @@ def generate_messenger_pdf(data):
     for i, (label, key) in enumerate(_ENT_ROW2):
         _chk(cv, _LABEL_X[i] - 20, 153, key == ent, label)
 
+    # Separator after entity band
+    _sep(cv, 178)
+
     # ── Vehicle type: t=188 ───────────────────────────────────────────────
-    # พิกัดจาก PDF: ( x=50, checkbox ~58, ) x=86, label x=93
-    #               ( x=165, checkbox ~173, ) x=201, label x=208
-    # Contract Number: x=310
     veh = d.get('vehicleType', 'car')
     _veh    = str(veh or 'car').lower().strip()
     is_car  = _veh in ['car', 'รถยนต์']
@@ -409,14 +414,12 @@ def generate_messenger_pdf(data):
     if not is_car and not is_moto:
         is_car = True
 
-    # บังคับ: รับ boolean flags จาก WebApp.gs ด้วย (v15 compat)
     if d.get('vehicle_car') is True:        is_car, is_moto = True, False
     if d.get('vehicle_motorcycle') is True: is_car, is_moto = False, True
 
-    T_VEH = 188   # t value สำหรับแถว vehicle
+    T_VEH = 188
 
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    # col 1: รถยนต์
     cv.drawString(50, Y(T_VEH), '(')
     sz = 14
     ry_v = Y(T_VEH) - 2
@@ -431,7 +434,6 @@ def generate_messenger_pdf(data):
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(86, Y(T_VEH), ') รถยนต์')
 
-    # col 2: รถมอเตอร์ไซด์
     cv.drawString(165, Y(T_VEH), '(')
     ry_v2 = Y(T_VEH) - 2
     if is_moto:
@@ -444,22 +446,16 @@ def generate_messenger_pdf(data):
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(201, Y(T_VEH), ') รถมอเตอร์ไซด์')
 
-    # Contract Number (right column): x=310
-    # [FIX v17] label+dots เต็มแถว, ค่ากึ่งกลาง dots area
-    _rcol_field(cv, 310, T_VEH, 'Contract Number:', _s(d.get('contractNumber')), RX)
+    _rcol_field(cv, 310, T_VEH, 'เลข PR :', _s(d.get('contractNumber')), RX)
 
     # ── Urgency: t=216 ───────────────────────────────────────────────────
-    # พิกัดเหมือน vehicle row (x=50,165) แต่ t=216
-    # วันที่สั่งงาน: x=312.5 → 310
     urg = d.get('isUrgent') in [True, 'TRUE', 'true', '1']
-    # compat: WebApp.gs อาจส่ง urgent_true/urgent_false
     if d.get('urgent_true') is True:  urg = True
     if d.get('urgent_false') is True: urg = False
 
     T_URG = 216
 
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    # col 1: ด่วน
     cv.drawString(50, Y(T_URG), '(')
     ry_u = Y(T_URG) - 2
     cv.setLineWidth(1.0)
@@ -473,7 +469,6 @@ def generate_messenger_pdf(data):
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(86, Y(T_URG), ') ด่วน')
 
-    # col 2: ไม่ด่วน
     cv.drawString(165, Y(T_URG), '(')
     ry_u2 = Y(T_URG) - 2
     if not urg:
@@ -486,15 +481,14 @@ def generate_messenger_pdf(data):
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(201, Y(T_URG), ') ไม่ด่วน')
 
-    # วันที่สั่งงาน (right column): x=310
-    # [FIX v17] label+dots เต็มแถว, ค่ากึ่งกลาง
     _rcol_field(cv, 310, T_URG, 'วันที่สั่งงาน :', _s(d.get('orderDate', _tbe())), RX)
 
     # ── วันที่ดำเนินงาน: t=242 ───────────────────────────────────────────
-    # อยู่แค่ column ขวา x=310
     T_OPD = 242
-    # [FIX v17] label+dots เต็มแถว, ค่ากึ่งกลาง
     _rcol_field(cv, 310, T_OPD, 'วันที่ดำเนินงาน :', _s(d.get('operationDate')), RX)
+
+    # Separator before messenger section
+    _sep(cv, 264)
 
     # ── ชื่อเจ้าหน้าที่: t=278 ───────────────────────────────────────────
     T_MSG = 278
@@ -502,7 +496,6 @@ def generate_messenger_pdf(data):
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(T_MSG), lbl_msg)
     lw_msg = cv.stringWidth(lbl_msg, FB, FS_LBL)
-    # [FIX v17] dots เต็มแถวก่อน จากนั้นวาง nm_val กึ่งกลาง dot area
     nm_val = _s(d.get('messengerName', 'พี่วุฒ'))
     dot_nm_x1 = LX + lw_msg + 8
     _dots(cv, dot_nm_x1, T_MSG + 5, RX)
@@ -515,29 +508,66 @@ def generate_messenger_pdf(data):
         cv.setFont(F, FS_DAT); cv.setFillColor(CF)
         cv.drawString(mid_nm, Y(T_MSG), nm_val)
 
+    # Separator before content sections
+    _sep(cv, 300)
+
     # ── รายละเอียดของงาน: label t=313, lines t=[344,375,406,437,468] ────
-    # [FIX v17] fill ข้อมูลต่อในบรรทัด label ได้เลย
+    _accent_bar(cv, 313)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(313), 'รายละเอียดของงานที่ให้ไปรับ-ส่ง:')
     _lbl_lw = cv.stringWidth('รายละเอียดของงานที่ให้ไปรับ-ส่ง:', FB, FS_LBL)
     _flines_inline(cv, _s(d.get('jobDetail')), 313, _lbl_lw, [344, 375, 406, 437, 468])
 
     # ── สิ่งที่นำกลับ: label t=468, lines t=[504,539,575] ───────────────
-    # [FIX v17] fill ข้อมูลต่อในบรรทัด label ได้เลย
+    _accent_bar(cv, 468)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(468), 'สิ่งที่นำกลับ :')
     _lbl_ret_lw = cv.stringWidth('สิ่งที่นำกลับ :', FB, FS_LBL)
     _flines_inline(cv, _s(d.get('returnItems')), 468, _lbl_ret_lw, [504, 539, 575])
 
-    # ── สถานที่: label t=575, lines t=[603,631,658] ──────────────────────
-    # [FIX v17] fill ข้อมูลต่อในบรรทัด label ได้เลย
+    # ── สถานที่: แบ่งช่องแยก (t=575–651) ────────────────────────────────────
+    _accent_bar(cv, 575)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(575), 'สถานที่ ส่งงาน-รับงาน:')
-    _lbl_loc_lw = cv.stringWidth('สถานที่ ส่งงาน-รับงาน:', FB, FS_LBL)
-    _flines_inline(cv, _s(d.get('location')), 575, _lbl_loc_lw, [603, 631, 658])
+
+    # บริษัท / สถานที่ (t=593)
+    _loc_field(cv, LX + 8, 593, 'บริษัท / สถานที่ :',
+               _s(d.get('locationCompany', d.get('location'))))
+
+    # ที่อยู่ (t=614 + overflow t=632)
+    _loc_field(cv, LX + 8, 614, 'ที่อยู่ :',
+               _s(d.get('locationAddress')))
+    # overflow line 2 — ถ้า address ยาว
+    addr_full = _s(d.get('locationAddress'))
+    if addr_full:
+        lw_a = cv.stringWidth('ที่อยู่ :', F, 11)
+        dot_x_a = LX + 8 + lw_a + 4
+        mw_a = RX - dot_x_a - 2
+        mw_rest = RX - LX - 8 - 2
+        fit1 = addr_full
+        while len(fit1) > 1 and cv.stringWidth(fit1, F, FS_DAT) > mw_a:
+            fit1 = fit1[:-1]
+        rest = addr_full[len(fit1):]
+        if rest:
+            _dots(cv, LX + 8, 632 + 4, RX)
+            rw = cv.stringWidth(rest, F, FS_DAT)
+            cv.setFillColor(white)
+            cv.rect(LX + 8, Y(632) - 2, rw + 4, FS_DAT + 3, fill=1, stroke=0)
+            cv.setFont(F, FS_DAT); cv.setFillColor(CF)
+            cv.drawString(LX + 8, Y(632), rest)
+
+    # ผู้ติดต่อ / โทร split (t=651)
+    T_CT = 651
+    CT_MID = LX + (RX - LX) * 0.52
+    _loc_field(cv, LX + 8, T_CT, 'ผู้ติดต่อ :',
+               _s(d.get('locationContact')), end_x=CT_MID - 4)
+    _loc_field(cv, CT_MID + 2, T_CT, 'โทร :',
+               _s(d.get('locationPhone')))
+
+    # Separator before signature section
+    _sep(cv, 672, color=C_BAND_BDR, lw=1.0)
 
     # ── Signature section ─────────────────────────────────────────────────
-    # พิกัดจาก PDF: mid=305
     SIG_MID = 305
 
     # ผู้รับเอกสาร: t=686
@@ -558,7 +588,6 @@ def generate_messenger_pdf(data):
     lbl_ord = 'ผู้สั่งงาน / วันที่สั่งงาน :'
     cv.drawString(LX, Y(T_SIG2), lbl_ord)
     lw_ord = cv.stringWidth(lbl_ord, F, FS_LBL)
-    # fill ordererName
     nm_ord = _s(d.get('ordererName'))
     cv.setFont(FB, FS_DAT); cv.setFillColor(CF)
     cv.drawString(LX + lw_ord + 4, Y(T_SIG2), nm_ord)
