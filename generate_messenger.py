@@ -145,7 +145,7 @@ def _dots(cv, x1, yt, x2):
     cv.setFont(F, FS_DOT)
     cv.setFillColor(CB)
     dw  = cv.stringWidth('.', F, FS_DOT)
-    n   = int((x2 - x1) / (dw * 0.8))
+    n   = int((x2 - x1) / (dw * 1.15))   # 1.15 = เว้นระยะ dot มากขึ้น ดูโปร่งกว่า
     txt = '.' * n
     while cv.stringWidth(txt, F, FS_DOT) > (x2 - x1) and n > 0:
         n -= 1
@@ -154,8 +154,10 @@ def _dots(cv, x1, yt, x2):
 
 
 def _fdots(cv, yt):
-    """full-width dot line"""
-    _dots(cv, LX, yt, RX)
+    """full-width thin underline"""
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(LX, Y(yt) - 2, RX, Y(yt) - 2)
+    cv.setLineWidth(1.0)
 
 
 def _flines(cv, text, yt_list, first_line_x=None):
@@ -224,18 +226,19 @@ def _chk(cv, x, yt, checked, label):
 
 
 def _loc_field(cv, lx, yt, label, val, end_x=None):
-    """Sub-field ในส่วน สถานที่: label สีเทา 11pt + dots + value ซ้าย"""
+    """Sub-field ในส่วน สถานที่: label สีเทา 11pt + thin underline + value ซ้าย"""
     end_x = end_x or RX
     C_SUB = HexColor('#666666')
     cv.setFont(F, 11); cv.setFillColor(C_SUB)
     cv.drawString(lx, Y(yt), label)
     lw = cv.stringWidth(label, F, 11)
     dot_x1 = lx + lw + 4
-    _dots(cv, dot_x1, yt + 4, end_x)
+    # thin underline แทน dots — ดูสะอาดกว่า
+    cv.setStrokeColor(HexColor('#d0d4e8')); cv.setLineWidth(0.4)
+    cv.line(dot_x1, Y(yt) - 2, end_x, Y(yt) - 2)
+    cv.setLineWidth(1.0)
     if val:
         vw = cv.stringWidth(val, F, FS_DAT)
-        cv.setFillColor(white)
-        cv.rect(dot_x1 + 1, Y(yt) - 2, vw + 4, FS_DAT + 3, fill=1, stroke=0)
         cv.setFont(F, FS_DAT); cv.setFillColor(CF)
         cv.drawString(dot_x1 + 2, Y(yt), val)
 
@@ -275,7 +278,9 @@ def _flines_inline(cv, text, label_t, label_lw, extra_yt_list):
             rem = rem[len(fit):]
 
     dot_x1_first = LX + label_lw + 8
-    _dots(cv, dot_x1_first, label_t + 5, RX)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(dot_x1_first, Y(label_t) - 2, RX, Y(label_t) - 2)
+    cv.setLineWidth(1.0)
     if lines and lines[0][0] == 'first' and lines[0][1]:
         val0 = lines[0][1]
         vw0  = cv.stringWidth(val0, F, FS_DAT)
@@ -401,14 +406,14 @@ def _rcol_field(cv, lx, yt, label, val, end_x):
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(lx, Y(yt), label)
     lw = cv.stringWidth(label, F, FS_LBL)
-    dot_x1 = lx + lw + 4
-    dot_x2 = end_x
-    _dots(cv, dot_x1, yt + 5, dot_x2)
+    val_x = lx + lw + 6
+    # Clean thin underline for field area (แทน dots — ดูสะอาดกว่า)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(val_x, Y(yt) - 2, end_x, Y(yt) - 2)
+    cv.setLineWidth(1.0)
     if val:
         vw = cv.stringWidth(val, F, FS_DAT)
-        mid_x = dot_x1 + (dot_x2 - dot_x1 - vw) / 2
-        cv.setFillColor(white)
-        cv.rect(mid_x - 2, Y(yt) - 3, vw + 4, FS_DAT + 4, fill=1, stroke=0)
+        mid_x = val_x + (end_x - val_x - vw) / 2
         cv.setFont(F, FS_DAT); cv.setFillColor(CF)
         cv.drawString(mid_x, Y(yt), val)
 
@@ -513,12 +518,25 @@ def generate_messenger_pdf(data):
     # Separator after entity band
     _sep(cv, 178)
 
+    # ── Vehicle/Urgency/Dates section band (t=179–264) ────────────────────
+    VSEC_TOP = 179
+    VSEC_BOT = 264
+    VRT_DIV  = 303    # vertical divider x: left=checkboxes, right=date/PR
+
+    cv.setFillColor(HexColor('#f7f8ff'))
+    cv.rect(LX, Y(VSEC_BOT), RX - LX, VSEC_BOT - VSEC_TOP, fill=1, stroke=0)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.rect(LX, Y(VSEC_BOT), RX - LX, VSEC_BOT - VSEC_TOP, fill=0, stroke=1)
+    # Vertical divider
+    cv.line(VRT_DIV, Y(VSEC_TOP), VRT_DIV, Y(VSEC_BOT))
+    cv.setLineWidth(1.0)
+
     # ── Vehicle type: t=188 ───────────────────────────────────────────────
     veh = d.get('vehicleType', 'car')
     _veh    = str(veh or 'car').lower().strip()
     is_car  = _veh in ['car', 'รถยนต์']
     is_moto = _veh in ['motorcycle', 'motorbike', 'รถมอเตอร์ไซค์', 'รถมอเตอร์ไซด์',
-                   'รถมอเตอร์', 'มอเตอร์ไซค์', 'มอเตอร์ไซด์', 'motocycle']
+                       'รถมอเตอร์', 'มอเตอร์ไซค์', 'มอเตอร์ไซด์', 'motocycle']
     if not is_car and not is_moto:
         is_car = True
 
@@ -552,7 +570,7 @@ def generate_messenger_pdf(data):
         cv.setStrokeColor(HexColor('#aab0c0')); cv.setFillColor(white)
         cv.roundRect(173, ry_v2, sz, sz, 3, fill=1, stroke=1)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(201, Y(T_VEH), ') รถมอเตอร์ไซด์')
+    cv.drawString(201, Y(T_VEH), ') รถมอเตอร์ไซค์')
 
     _rcol_field(cv, 310, T_VEH, 'เลข PR :', _s(d.get('contractNumber')), RX)
 
@@ -591,12 +609,9 @@ def generate_messenger_pdf(data):
 
     _rcol_field(cv, 310, T_URG, 'วันที่สั่งงาน :', _s(d.get('orderDate', _tbe())), RX)
 
-    # ── วันที่ดำเนินงาน: t=242 ───────────────────────────────────────────
-    T_OPD = 242
+    # ── วันที่ดำเนินงาน: t=244 (28pt gap = equal with above rows) ─────────
+    T_OPD = 244
     _rcol_field(cv, 310, T_OPD, 'วันที่ดำเนินงาน :', _s(d.get('operationDate')), RX)
-
-    # Separator before messenger section
-    _sep(cv, 264)
 
     # ── ชื่อเจ้าหน้าที่: t=278 ───────────────────────────────────────────
     T_MSG = 278
@@ -605,14 +620,14 @@ def generate_messenger_pdf(data):
     cv.drawString(LX, Y(T_MSG), lbl_msg)
     lw_msg = cv.stringWidth(lbl_msg, FB, FS_LBL)
     nm_val = _s(d.get('messengerName', 'พี่วุฒ'))
-    dot_nm_x1 = LX + lw_msg + 8
-    _dots(cv, dot_nm_x1, T_MSG + 5, RX)
+    val_nm_x = LX + lw_msg + 8
+    # clean underline line
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(val_nm_x, Y(T_MSG) - 2, RX, Y(T_MSG) - 2)
+    cv.setLineWidth(1.0)
     if nm_val:
-        cv.setFont(F, FS_DAT); cv.setFillColor(CF)
         vw_nm = cv.stringWidth(nm_val, F, FS_DAT)
-        mid_nm = dot_nm_x1 + (RX - dot_nm_x1 - vw_nm) / 2
-        cv.setFillColor(white)
-        cv.rect(mid_nm - 2, Y(T_MSG) - 3, vw_nm + 4, FS_DAT + 4, fill=1, stroke=0)
+        mid_nm = val_nm_x + (RX - val_nm_x - vw_nm) / 2
         cv.setFont(F, FS_DAT); cv.setFillColor(CF)
         cv.drawString(mid_nm, Y(T_MSG), nm_val)
 
@@ -658,7 +673,9 @@ def generate_messenger_pdf(data):
         rest = addr_full[len(fit1):].lstrip()
         _loc_field(cv, LX + 8, 614, 'ที่อยู่ :', fit1)
         if rest:
-            _dots(cv, LX + 8, 632 + 4, RX)
+            cv.setStrokeColor(HexColor('#d0d4e8')); cv.setLineWidth(0.4)
+            cv.line(LX + 8, Y(632) - 2, RX, Y(632) - 2)
+            cv.setLineWidth(1.0)
             rw = cv.stringWidth(rest, F, FS_DAT)
             cv.setFillColor(white)
             cv.rect(LX + 8, Y(632) - 2, rw + 4, FS_DAT + 3, fill=1, stroke=0)
@@ -687,11 +704,15 @@ def generate_messenger_pdf(data):
     lbl_recv = 'ผู้รับเอกสาร :'
     cv.drawString(LX, Y(T_SIG1), lbl_recv)
     lw_recv = cv.stringWidth(lbl_recv, F, FS_LBL)
-    _dots(cv, LX + lw_recv + 2, T_SIG1 + 5, SIG_MID - 5)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(LX + lw_recv + 2, Y(T_SIG1) - 2, SIG_MID - 5, Y(T_SIG1) - 2)
+    cv.setLineWidth(1.0)
     lbl_recv2 = '/วันที่รับเอกสาร'
     cv.drawString(SIG_MID, Y(T_SIG1), lbl_recv2)
     lw_recv2 = cv.stringWidth(lbl_recv2, F, FS_LBL)
-    _dots(cv, SIG_MID + lw_recv2 + 2, T_SIG1 + 5, RX)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(SIG_MID + lw_recv2 + 2, Y(T_SIG1) - 2, RX, Y(T_SIG1) - 2)
+    cv.setLineWidth(1.0)
 
     # ผู้สั่งงาน / วันที่สั่งงาน: t=714
     T_SIG2 = 714
@@ -699,14 +720,17 @@ def generate_messenger_pdf(data):
     lbl_ord = 'ผู้สั่งงาน / วันที่สั่งงาน :'
     cv.drawString(LX, Y(T_SIG2), lbl_ord)
     lw_ord = cv.stringWidth(lbl_ord, F, FS_LBL)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(LX + lw_ord + 4, Y(T_SIG2) - 2, SIG_MID - 5, Y(T_SIG2) - 2)
+    cv.setLineWidth(1.0)
     nm_ord = _s(d.get('ordererName'))
     cv.setFont(FB, FS_DAT); cv.setFillColor(CF)
     cv.drawString(LX + lw_ord + 4, Y(T_SIG2), nm_ord)
-    gap_ord = cv.stringWidth(nm_ord, FB, FS_DAT) if nm_ord else 0
-    _dots(cv, LX + lw_ord + gap_ord + 6, T_SIG2 + 5, SIG_MID - 5)
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(SIG_MID, Y(T_SIG2), '/')
-    _dots(cv, SIG_MID + 8, T_SIG2 + 5, RX)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(SIG_MID + 8, Y(T_SIG2) - 2, RX, Y(T_SIG2) - 2)
+    cv.setLineWidth(1.0)
 
     # ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น: t=742
     T_SIG3 = 742
@@ -714,9 +738,13 @@ def generate_messenger_pdf(data):
     lbl_fin = 'ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น :'
     cv.drawString(LX, Y(T_SIG3), lbl_fin)
     lw_fin = cv.stringWidth(lbl_fin, F, FS_LBL)
-    _dots(cv, LX + lw_fin + 2, T_SIG3 + 5, SIG_MID - 5)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(LX + lw_fin + 2, Y(T_SIG3) - 2, SIG_MID - 5, Y(T_SIG3) - 2)
+    cv.setLineWidth(1.0)
     cv.drawString(SIG_MID, Y(T_SIG3), '/')
-    _dots(cv, SIG_MID + 8, T_SIG3 + 5, RX)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(SIG_MID + 8, Y(T_SIG3) - 2, RX, Y(T_SIG3) - 2)
+    cv.setLineWidth(1.0)
 
     # ผู้อนุมัติ: t=770
     T_SIG4 = 770
@@ -724,7 +752,9 @@ def generate_messenger_pdf(data):
     lbl_apv = 'ผู้อนุมัติ :'
     cv.drawString(LX, Y(T_SIG4), lbl_apv)
     lw_apv = cv.stringWidth(lbl_apv, F, FS_LBL)
-    _dots(cv, LX + lw_apv + 2, T_SIG4 + 5, RX)
+    cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
+    cv.line(LX + lw_apv + 2, Y(T_SIG4) - 2, RX, Y(T_SIG4) - 2)
+    cv.setLineWidth(1.0)
 
     # ── Footer ────────────────────────────────────────────────────────────
     cv.setFont(F, 7); cv.setFillColor(CL)
