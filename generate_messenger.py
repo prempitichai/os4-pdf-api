@@ -464,9 +464,7 @@ def generate_messenger_pdf(data):
         logger.debug(f"Logo load ล้มเหลว: {e}")
 
     # ── Background bands (วาดก่อน text ทั้งหมด) ──────────────────────────
-    # Entity section band (t=108 → t=170)
-    cv.setFillColor(C_BAND)
-    cv.rect(LX, Y(170), RX - LX, 62, fill=1, stroke=0)
+    # Entity section separator lines (no fill)
     cv.setStrokeColor(C_BAND_BDR)
     cv.setLineWidth(0.5)
     cv.line(LX, Y(108), RX, Y(108))
