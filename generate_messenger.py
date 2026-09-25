@@ -124,6 +124,10 @@ def Y(t):
 
 def _s(v, d=''):
     s = str(v or '').strip()
+    # replace box/checkbox Unicode chars the Thai font can't render
+    for ch in ('☐', '☑', '☒', '□', '■', '▪', '▫'):
+        s = s.replace(ch, ' / ')
+    s = s.strip(' /')
     return s if s else d
 
 
