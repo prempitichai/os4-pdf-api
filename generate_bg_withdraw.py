@@ -185,7 +185,30 @@ def generate_bg_poa():
             sig_poa_line('พยาน', w2),
         ])
 
-        css = build_css()
+        # Override: fix sig-col overflow — position signature block absolutely
+        # so it always appears at bottom of page regardless of paragraph count
+        poa_css_override = """
+    .page {
+        position: relative !important;
+        height: 297mm !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+    }
+    .sig-col {
+        position: absolute !important;
+        bottom: 32mm !important;
+        right: 20mm !important;
+        width: 50% !important;
+        margin-top: 0 !important;
+    }
+    .stamp {
+        position: absolute !important;
+        bottom: 24mm !important;
+        left: 25mm !important;
+        margin-top: 0 !important;
+    }
+"""
+        css = build_css() + poa_css_override
         page = f"""<div class="page">
   {'<div class="doc-number">เลขที่ ' + docnum + '</div>' if docnum else ''}
   <div class="title">หนังสือมอบอำนาจ</div>

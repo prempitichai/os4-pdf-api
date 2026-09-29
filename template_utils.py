@@ -159,7 +159,7 @@ def build_css(fonts=None):
     /* ── ย่อหน้า ── */
     .para {{
         font-size: 10pt;
-        text-align: justify;
+        text-align: left;
         text-indent: 12mm;
         line-height: 1.6;
         margin-bottom: 4mm;
