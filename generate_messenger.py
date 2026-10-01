@@ -111,7 +111,7 @@ CL  = HexColor('#cccccc')   # footer
 C_ACCENT  = HexColor('#1a237e')   # blue accent
 C_BAND    = HexColor('#eef0ff')   # entity/sig band fill
 C_BAND_SIG = HexColor('#f4f5ff')  # sig area fill
-C_BAND_BDR = HexColor('#c5cae9')  # band border
+C_BAND_BDR = HexColor('#c8c8c8')  # band border
 C_SEP     = HexColor('#e0e0e8')   # separator line
 
 
@@ -464,11 +464,7 @@ def generate_messenger_pdf(data):
         logger.debug(f"Logo load ล้มเหลว: {e}")
 
     # ── Background bands (วาดก่อน text ทั้งหมด) ──────────────────────────
-    # Entity section separator lines (no fill)
-    cv.setStrokeColor(C_BAND_BDR)
-    cv.setLineWidth(0.5)
-    cv.line(LX, Y(88), RX, Y(88))
-    cv.line(LX, Y(150), RX, Y(150))
+    # Entity section — no border box (ลบกรอบสีฟ้าออก)
 
     # Signature section band (t=676 → t=790)
     cv.setFillColor(C_BAND_SIG)
