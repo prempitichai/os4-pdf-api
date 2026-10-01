@@ -319,7 +319,7 @@ def _draw_doc_table(cv, items, t_start, t_end):
     COL_NUM  = LX + 35
     COL_QTY  = RX - 52
     HEADER_H = 20
-    ROW_H    = 18
+    ROW_H    = 16
     FS_TBL   = 9.5
 
     max_rows = max(1, int((t_end - t_start - HEADER_H) / ROW_H))
@@ -467,8 +467,8 @@ def generate_messenger_pdf(data):
     # Entity section separator lines (no fill)
     cv.setStrokeColor(C_BAND_BDR)
     cv.setLineWidth(0.5)
-    cv.line(LX, Y(108), RX, Y(108))
-    cv.line(LX, Y(170), RX, Y(170))
+    cv.line(LX, Y(88), RX, Y(88))
+    cv.line(LX, Y(150), RX, Y(150))
 
     # Signature section band (t=676 → t=790)
     cv.setFillColor(C_BAND_SIG)
@@ -508,17 +508,17 @@ def generate_messenger_pdf(data):
                  ('B2B',   'b2b'),   ('Fahcloud', 'fahcloud')]
 
     for i, (label, key) in enumerate(_ENT_ROW1):
-        _chk(cv, _LABEL_X[i] - 20, 125, key == ent, label)
+        _chk(cv, _LABEL_X[i] - 20, 105, key == ent, label)
 
     for i, (label, key) in enumerate(_ENT_ROW2):
-        _chk(cv, _LABEL_X[i] - 20, 153, key == ent, label)
+        _chk(cv, _LABEL_X[i] - 20, 133, key == ent, label)
 
     # Separator after entity band
-    _sep(cv, 178)
+    _sep(cv, 158)
 
-    # ── Vehicle/Urgency/Dates section band (t=179–264) ────────────────────
-    VSEC_TOP = 179
-    VSEC_BOT = 264
+    # ── Vehicle/Urgency/Dates section band (t=159–248) ────────────────────
+    VSEC_TOP = 159
+    VSEC_BOT = 248
     VRT_DIV  = 303    # vertical divider x: left=checkboxes, right=date/PR
 
     # (no border box — underlines on each field are sufficient)
@@ -535,7 +535,7 @@ def generate_messenger_pdf(data):
     if d.get('vehicle_car') is True:        is_car, is_moto = True, False
     if d.get('vehicle_motorcycle') is True: is_car, is_moto = False, True
 
-    T_VEH = 188
+    T_VEH = 168
 
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(50, Y(T_VEH), '(')
@@ -571,7 +571,7 @@ def generate_messenger_pdf(data):
     if d.get('urgent_true') is True:  urg = True
     if d.get('urgent_false') is True: urg = False
 
-    T_URG = 216
+    T_URG = 190
 
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     cv.drawString(50, Y(T_URG), '(')
@@ -601,12 +601,12 @@ def generate_messenger_pdf(data):
 
     _rcol_field(cv, 310, T_URG, 'วันที่สั่งงาน :', _s(d.get('orderDate', _tbe())), RX)
 
-    # ── วันที่ดำเนินงาน: t=244 (28pt gap = equal with above rows) ─────────
-    T_OPD = 244
+    # ── วันที่ดำเนินงาน: t=212 (22pt gap) ────────────────────────────────
+    T_OPD = 212
     _rcol_field(cv, 310, T_OPD, 'วันที่ดำเนินงาน :', _s(d.get('operationDate')), RX)
 
-    # ── ชื่อเจ้าหน้าที่: t=278 ───────────────────────────────────────────
-    T_MSG = 278
+    # ── ชื่อเจ้าหน้าที่: t=234 ───────────────────────────────────────────
+    T_MSG = 234
     lbl_msg = 'ชื่อเจ้าหน้าที่ (Messenger / Logistic):'
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(T_MSG), lbl_msg)
@@ -624,30 +624,30 @@ def generate_messenger_pdf(data):
         cv.drawString(mid_nm, Y(T_MSG), nm_val)
 
     # Separator before content sections
-    _sep(cv, 300)
+    _sep(cv, 256)
 
-    # ── รายละเอียดของงาน: label t=313, table t=326–464 ──────────────────
-    _accent_bar(cv, 313)
+    # ── รายละเอียดของงาน: label t=267, table t=280–490 (11 rows) ──────────
+    _accent_bar(cv, 267)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(313), 'รายละเอียดของงานที่ให้ไปรับ-ส่ง:')
-    _draw_doc_table(cv, _split_items(d.get('jobDetail')), 326, 464)
+    cv.drawString(LX, Y(267), 'รายละเอียดของงานที่ให้ไปรับ-ส่ง:')
+    _draw_doc_table(cv, _split_items(d.get('jobDetail')), 280, 490)
 
-    # ── สิ่งที่นำกลับ: label t=468, table t=481–571 ─────────────────────
-    _accent_bar(cv, 468)
+    # ── สิ่งที่นำกลับ: label t=494, table t=507–597 ─────────────────────
+    _accent_bar(cv, 494)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(468), 'สิ่งที่นำกลับ :')
-    _draw_doc_table(cv, _split_csv(d.get('returnItems')), 481, 571)
+    cv.drawString(LX, Y(494), 'สิ่งที่นำกลับ :')
+    _draw_doc_table(cv, _split_csv(d.get('returnItems')), 507, 597)
 
-    # ── สถานที่: แบ่งช่องแยก (t=575–651) ────────────────────────────────────
-    _accent_bar(cv, 575)
+    # ── สถานที่: แบ่งช่องแยก (t=601–677) ────────────────────────────────────
+    _accent_bar(cv, 601)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(575), 'สถานที่ ส่งงาน-รับงาน:')
+    cv.drawString(LX, Y(601), 'สถานที่ ส่งงาน-รับงาน:')
 
-    # บริษัท / สถานที่ (t=593)
-    _loc_field(cv, LX + 8, 593, 'บริษัท / สถานที่ :',
+    # บริษัท / สถานที่ (t=619)
+    _loc_field(cv, LX + 8, 619, 'บริษัท / สถานที่ :',
                _s(d.get('locationCompany', d.get('location'))))
 
-    # ที่อยู่ (t=614 + overflow t=632) — fallback to old field name 'locationDetail'
+    # ที่อยู่ (t=640 + overflow t=658) — fallback to old field name 'locationDetail'
     addr_full = _s(d.get('locationAddress', d.get('locationDetail')))
     if addr_full:
         # คำนวณ fit1 ก่อน แล้วส่งแค่ fit1 ไปวาด (ป้องกัน text ซ้อนบน line 1)
@@ -663,21 +663,21 @@ def generate_messenger_pdf(data):
             if sp > len(fit1) // 3:
                 fit1 = fit1[:sp]
         rest = addr_full[len(fit1):].lstrip()
-        _loc_field(cv, LX + 8, 614, 'ที่อยู่ :', fit1)
+        _loc_field(cv, LX + 8, 640, 'ที่อยู่ :', fit1)
         if rest:
             cv.setStrokeColor(HexColor('#d0d4e8')); cv.setLineWidth(0.4)
-            cv.line(LX + 8, Y(632) - 2, RX, Y(632) - 2)
+            cv.line(LX + 8, Y(658) - 2, RX, Y(658) - 2)
             cv.setLineWidth(1.0)
             rw = cv.stringWidth(rest, F, FS_DAT)
             cv.setFillColor(white)
-            cv.rect(LX + 8, Y(632) - 2, rw + 4, FS_DAT + 3, fill=1, stroke=0)
+            cv.rect(LX + 8, Y(658) - 2, rw + 4, FS_DAT + 3, fill=1, stroke=0)
             cv.setFont(F, FS_DAT); cv.setFillColor(CF)
-            cv.drawString(LX + 8, Y(632), rest)
+            cv.drawString(LX + 8, Y(658), rest)
     else:
-        _loc_field(cv, LX + 8, 614, 'ที่อยู่ :', '')
+        _loc_field(cv, LX + 8, 640, 'ที่อยู่ :', '')
 
-    # ผู้ติดต่อ / โทร split (t=651) — fallback to old field names
-    T_CT = 651
+    # ผู้ติดต่อ / โทร split (t=677) — fallback to old field names
+    T_CT = 677
     CT_MID = LX + (RX - LX) * 0.52
     _loc_field(cv, LX + 8, T_CT, 'ผู้ติดต่อ :',
                _s(d.get('locationContact', d.get('contactPerson'))), end_x=CT_MID - 4)
@@ -685,13 +685,13 @@ def generate_messenger_pdf(data):
                _s(d.get('locationPhone', d.get('contactPhone'))))
 
     # Separator before signature section
-    _sep(cv, 672, color=C_BAND_BDR, lw=1.0)
+    _sep(cv, 698, color=C_BAND_BDR, lw=1.0)
 
     # ── Signature section ─────────────────────────────────────────────────
     SIG_MID = 305
 
-    # ผู้รับเอกสาร: t=686
-    T_SIG1 = 686
+    # ผู้รับเอกสาร: t=712
+    T_SIG1 = 712
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     lbl_recv = 'ผู้รับเอกสาร :'
     cv.drawString(LX, Y(T_SIG1), lbl_recv)
@@ -706,8 +706,8 @@ def generate_messenger_pdf(data):
     cv.line(SIG_MID + lw_recv2 + 2, Y(T_SIG1) - 2, RX, Y(T_SIG1) - 2)
     cv.setLineWidth(1.0)
 
-    # ผู้สั่งงาน / วันที่สั่งงาน: t=714
-    T_SIG2 = 714
+    # ผู้สั่งงาน / วันที่สั่งงาน: t=740
+    T_SIG2 = 740
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     lbl_ord = 'ผู้สั่งงาน / วันที่สั่งงาน :'
     cv.drawString(LX, Y(T_SIG2), lbl_ord)
@@ -724,8 +724,8 @@ def generate_messenger_pdf(data):
     cv.line(SIG_MID + 8, Y(T_SIG2) - 2, RX, Y(T_SIG2) - 2)
     cv.setLineWidth(1.0)
 
-    # ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น: t=742
-    T_SIG3 = 742
+    # ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น: t=768
+    T_SIG3 = 768
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     lbl_fin = 'ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น :'
     cv.drawString(LX, Y(T_SIG3), lbl_fin)
@@ -738,8 +738,8 @@ def generate_messenger_pdf(data):
     cv.line(SIG_MID + 8, Y(T_SIG3) - 2, RX, Y(T_SIG3) - 2)
     cv.setLineWidth(1.0)
 
-    # ผู้อนุมัติ: t=770
-    T_SIG4 = 770
+    # ผู้อนุมัติ: t=796
+    T_SIG4 = 796
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     lbl_apv = 'ผู้อนุมัติ :'
     cv.drawString(LX, Y(T_SIG4), lbl_apv)
