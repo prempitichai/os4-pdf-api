@@ -1,120 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v7-s15
+# VERSION: v8-layout
 """
 generate_warning_letter.py — หนังสือตักเตือนพนักงาน (Warning Letter)
 ═══════════════════════════════════════════════════════════════════
 
-★ S15 v7 changes:
-  - [FIX] doc-number แสดงทุกหน้า (margin-bottom ชัดเจน)
-  - [FIX] spacing ระหว่างหัวข้อ + บรรทัดแรก (เพิ่ม padding)
-  - [FIX] sig: ไม่มีชื่อ → ไม่ใส่ (....) + มีชื่อ → แสดงชื่อเลย
-  - [FIX] layout ทั้งฉบับ — spacing, padding, line-height
-  - @font-face embed THSarabunNew + margin-top 17mm
+★ v8 (2026-10): จัดหน้าใหม่ด้วย hr_doc_layout
+  - ข้อความไม่ชิดเส้นกรอบ (เดิมระยะขอบในกรอบถูกกฎ CSS อื่นทับเป็น 0)
+  - ไม่บังคับขึ้นหน้า 2 ที่ตำแหน่งตายตัว — กรอบไหลต่อเนื่องตามความยาวเนื้อหา
+  - เลขที่หนังสือ + หน้า x / y ทุกหน้า, ช่องลงนามไม่มีเส้นตาราง
+  - ถ้อยคำของหนังสือคงเดิมทุกตัวอักษร
 """
 
 import base64
 import logging
 from flask import request, jsonify
-from template_utils import (
-    merge_on_template, html_to_pdf, build_css, build_html,
-    font_b64
+from template_utils import html_to_pdf
+from hr_doc_layout import (
+    esc as _esc, document, fields, nowrap, option, paragraphs, signatures, merge_multi_page
 )
 
 logger = logging.getLogger(__name__)
 
-
-def _esc(s):
-    return (str(s or '').replace('&','&amp;').replace('<','&lt;')
-            .replace('>','&gt;').replace('"','&quot;'))
-
-def _chk(checked):
-    return '☒' if checked else '☐'
-
-
-# ══════════════════════════════════════════════════════════════════════
-# CSS
-# ══════════════════════════════════════════════════════════════════════
-
-def _build_warning_css():
-    fonts = font_b64()
-    reg  = fonts.get('THSarabunNew.ttf', '')
-    bold = fonts.get('THSarabunNew-Bold.ttf', '')
-    ff = ''
-    if reg:
-        ff += f"""
-        @font-face {{
-            font-family: 'THSarabunNew';
-            font-weight: normal;
-            src: url('data:font/truetype;base64,{reg}') format('truetype');
-        }}"""
-    if bold:
-        ff += f"""
-        @font-face {{
-            font-family: 'THSarabunNew';
-            font-weight: bold;
-            src: url('data:font/truetype;base64,{bold}') format('truetype');
-        }}"""
-
-    return ff + """
-    @page { size: A4; margin: 17mm 18mm 18mm 22mm; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-        font-family: 'THSarabunNew', 'TH Sarabun New', sans-serif;
-        font-size: 10.5pt;
-        color: #000;
-        line-height: 1.55;
-    }
-    .page { width: auto; min-height: auto; padding: 0; }
-    .doc-number { font-size: 10pt; margin-bottom: 4mm; color: #333; }
-    .wl-tbl { width: 100%; border-collapse: collapse; border: 1.2pt solid #1a1a1a; }
-    .wl-tbl td { border: 0.8pt solid #444; padding: 0; vertical-align: top; }
-    .wl-hdr { background: #f0f4f8; text-align: center; padding: 7mm 10mm 6mm; }
-    .wl-hdr-title { font-size: 14pt; font-weight: bold; text-decoration: underline; letter-spacing: 0.5pt; color: #1a1a1a; }
-    .wl-content { padding: 6mm 10mm 6mm; font-size: 10.5pt; line-height: 1.55; }
-    .wl-fields { width: 100%; border-collapse: collapse; margin-bottom: 3mm; font-size: 10.5pt; }
-    .wl-fields td { padding: 1.5mm 2mm; border: none; vertical-align: bottom; }
-    .wl-fields .lbl { font-weight: bold; white-space: nowrap; color: #222; }
-    .wl-fields .val { border-bottom: 0.6pt dotted #888; min-width: 18mm; }
-    .wl-sec { font-weight: bold; text-decoration: underline; margin: 4mm 0 2.5mm; font-size: 10.5pt; }
-    .wl-vbox { border: 1pt solid #999; border-radius: 2pt; padding: 4mm 6mm; margin-bottom: 4mm; min-height: 25mm; background: #fafafa; }
-    .wl-vbox p { margin: 0 0 1.5mm; text-indent: 10mm; text-align: left; line-height: 1.6; font-size: 10.5pt; word-wrap: break-word; }
-    .wl-p { text-align: left; text-indent: 10mm; line-height: 1.6; margin-bottom: 3mm; font-size: 10.5pt; word-wrap: break-word; }
-    .wl-p-ul { text-align: left; text-indent: 10mm; line-height: 1.6; margin-bottom: 3mm; text-decoration: underline; font-size: 10.5pt; word-wrap: break-word; }
-    .wl-note-box { background: #f7f7f7; border-left: 2pt solid #aaa; padding: 4mm 6mm; margin: 4mm 0; font-size: 9.5pt; line-height: 1.5; word-wrap: break-word; }
-    .wl-note-title { font-weight: bold; text-decoration: underline; }
-    .wl-chk { display: flex; align-items: flex-start; gap: 3mm; margin: 1.5mm 0 1.5mm 18mm; font-size: 10.5pt; line-height: 1.45; }
-    .wl-chk-icon { font-size: 13pt; line-height: 1; flex-shrink: 0; }
-    .wl-sig td { padding: 4mm 3mm; text-align: center; vertical-align: top; width: 50%; }
-    .wl-sig-line { border-bottom: 0.5pt dotted #333; width: 50mm; margin: 0 auto 1.5mm; height: 10mm; }
-    .wl-sig-lbl { font-size: 9.5pt; color: #333; margin-bottom: 0.5mm; }
-    .wl-sig-nm { font-size: 10pt; }
-    .wl-sig-pre { font-size: 9pt; color: #666; margin-bottom: 0.5mm; }
-    """
-
-
-# ══════════════════════════════════════════════════════════════════════
-# SIGNATURE — ★ v7: ไม่มีชื่อ → ไม่ใส่จุด
-# ══════════════════════════════════════════════════════════════════════
-
-def _sig_cell(label, name):
-    e = _esc
-    # ★ v7: มีชื่อ → แสดงชื่อ, ไม่มี → แสดงว่าง
-    nm_html = f'<div class="wl-sig-nm">({e(name)})</div>' if name else ''
-    return f'<td><div class="wl-sig-pre">ลงชื่อ</div><div class="wl-sig-line"></div><div class="wl-sig-lbl">{label}</div>{nm_html}</td>'
-
-def _build_sig_rows(data):
-    co1 = data.get('companySignerName', '')
-    co2 = data.get('companySignerName2', '')
-    emp = data.get('employeeSignerName', data.get('employeeName', ''))
-    sup = data.get('supervisorName', '')
-    w1  = data.get('witness1Name', '')
-    w2  = data.get('witness2Name', '')
-    h = '<tr class="wl-sig">' + _sig_cell('นายจ้าง/บริษัท', co1)
-    h += _sig_cell('นายจ้าง/บริษัท (คนที่ 2)', co2) if co2 else '<td></td>'
-    h += '</tr><tr class="wl-sig">' + _sig_cell('พนักงาน', emp) + _sig_cell('หัวหน้างาน', sup)
-    h += '</tr><tr class="wl-sig">' + _sig_cell('พยาน', w1) + _sig_cell('พยาน', w2) + '</tr>'
-    return h
+# ขนาดตัวอักษรเนื้อหา (pt)
+_BASE_PT = 11.5
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -123,142 +32,57 @@ def _build_sig_rows(data):
 
 def _build_warning_html(data):
     e = _esc
-    doc_number    = e(data.get('docNumber', ''))
-    doc_date      = e(data.get('docDate', ''))
-    doc_month     = e(data.get('docMonth', ''))
-    doc_year      = e(data.get('docYear', ''))
-    company       = e(data.get('companyName', ''))
-    company_addr  = e(data.get('companyAddress', ''))
-    emp_name      = e(data.get('employeeName', ''))
-    emp_id        = e(data.get('employeeIdCard', ''))
-    emp_code      = e(data.get('employeeCode', ''))
-    emp_pos       = e(data.get('employeePosition', ''))
-    emp_dept      = e(data.get('employeeDepartment', ''))
-    incident_date = e(data.get('incidentDate', ''))
+    g = lambda k: str(data.get(k, '') or '').strip()
 
+    doc_date, doc_month, doc_year = g('docDate'), g('docMonth'), g('docYear')
     date_text = doc_date if (doc_date and not doc_month) else f"{doc_date} เดือน {doc_month} พ.ศ. {doc_year}"
-
-    body_raw = str(data.get('violationDetails', '') or '').strip()
-    body_paras = [p.strip() for p in body_raw.split('\n') if p.strip()] if body_raw else ['']
-    body_html = '\n'.join(f'<p>{e(p)}</p>' for p in body_paras)
 
     punishment   = data.get('punishmentType', 'written')
     notif_method = data.get('notificationMethod', 'read_aloud')
 
-    css = _build_warning_css()
-    sig_html = _build_sig_rows(data)
+    emp_name = g('employeeName')
+    co2      = g('companySignerName2')
 
-    content = f"""<div class="page">
-  <div class="doc-number">{doc_number}</div>
-  <table class="wl-tbl">
-    <tr><td colspan="2" class="wl-hdr">
-      <div class="wl-hdr-title">หนังสือตักเตือนพนักงาน</div>
-    </td></tr>
-    <tr><td colspan="2" class="wl-content">
-      <p class="wl-p" style="margin-top:1mm">หนังสือฉบับนี้ทำขึ้นเมื่อวันที่ {date_text} ระหว่าง {company} {company_addr}</p>
-      <table class="wl-fields">
-        <tr><td class="lbl">นาย / นาง / นางสาว</td><td class="val">{emp_name}</td><td class="lbl">เลขประจำตัวประชาชน</td><td class="val">{emp_id}</td></tr>
-        <tr><td class="lbl">รหัสพนักงาน</td><td class="val">{emp_code}</td><td class="lbl">ตำแหน่ง</td><td class="val">{emp_pos}</td></tr>
-        <tr><td class="lbl">แผนก</td><td class="val" colspan="3">{emp_dept}</td></tr>
-      </table>
-      <div class="wl-sec">พฤติการณ์การกระทำผิดที่เกิดขึ้น เมื่อวันที่ {incident_date}</div>
-      <div class="wl-vbox">{body_html}</div>
-      <p class="wl-p-ul" style="margin-top:2mm">ดังนั้นการกระทำของท่านถือว่าไม่สอดคล้องกับระเบียบและข้อบังคับเกี่ยวกับการทำงานของบริษัท จึงถือเป็นการกระทำความผิดต่อบริษัทและทำให้บริษัทได้รับความเสียหายจากการกระทำของท่าน</p>
-      <div class="wl-sec">การลงโทษในครั้งนี้</div>
-      <div class="wl-chk"><span class="wl-chk-icon">{_chk(punishment == 'verbal')}</span> ตักเตือนด้วยวาจา</div>
-      <div class="wl-chk"><span class="wl-chk-icon">{_chk(punishment == 'written')}</span> ตักเตือนเป็นลายลักษณ์อักษร</div>
-      <div class="wl-chk"><span class="wl-chk-icon">{_chk(punishment == 'suspension')}</span> พักงานโดยไม่ได้รับค่าจ้างและตักเตือนเป็นลายลักษณ์อักษร</div>
-      <p class="wl-p" style="margin-top:3mm">ขอตักเตือนผู้กระทำความผิดโดยห้ามมิให้กระทำความผิดเดิมซ้ำอีกมิฉะนั้นจะลงโทษในสถานหนักต่อไป แต่หากได้ลงโทษผู้กระทำความผิดโดยตักเตือนเป็นลายลักษณ์อักษรหรือพักงานโดยไม่ได้รับค่าจ้างและตักเตือนเป็นลายลักษณ์อักษรในครั้งนี้แล้ว ถ้าได้กระทำความผิดเดิมซ้ำอีกในคราวต่อไป <b><u>ภายในระยะเวลา 1 (หนึ่ง) ปี</u></b> นับแต่วันที่กระทำความผิดครั้งนี้ ผู้กระทำความผิดจะต้องถูกลงโทษด้วยการเลิกจ้างโดยไม่จ่ายค่าชดเชยใด ๆ ทั้งสิ้น เว้นแต่มีเหตุให้บรรเทาโทษซึ่งอาจจะลดโทษให้ได้ตามสมควร</p>
-    </td></tr>
-  </table>
-  <div style="page-break-before:always"></div>
-  <div class="doc-number">{doc_number}</div>
-  <table class="wl-tbl">
-    <tr><td colspan="2" class="wl-content">
-      <div class="wl-note-box">
-        <p><span class="wl-note-title">หมายเหตุ</span> ในกรณีที่พนักงานที่ถูกลงโทษไม่ยินยอมลงนามในหนังสือตักเตือนดังกล่าวข้างต้นศาลฎีกาแผนกคดีแรงงานได้เคยวินิจฉัยว่าหากนายจ้างได้แจ้งพนักงานที่ถูกลงโทษโดยชอบด้วยกฎหมายแล้วให้ถือว่าหนังสือตักเตือนมีผลสมบูรณ์</p>
-        <p style="margin-top:1.5mm">— หากพนักงานไม่รับหนังสือเตือน บริษัทจะจัดส่งหนังสือเตือนไปยังภูมิลำเนา และ/หรือ อีเมล และ/หรือ ไลน์แจ้งหนังสือเตือน และให้ถือว่าท่านรับหนังสือเตือนดังกล่าวโดยชอบแล้ว</p>
-      </div>
-      <div class="wl-sec" style="margin-top:4mm">วิธีการแจ้ง</div>
-      <p style="margin-bottom:2mm;font-size:10.5pt">ด้วยวิธีใดวิธีหนึ่ง ดังต่อไปนี้</p>
-      <div class="wl-chk"><span class="wl-chk-icon">{_chk(notif_method == 'posted')}</span> ติดประกาศให้ทราบในสถานประกอบการ</div>
-      <div class="wl-chk"><span class="wl-chk-icon">{_chk(notif_method == 'read_aloud')}</span> อ่านให้ผู้กระทำความผิดทราบ โดยมีพยานรับรู้การลงโทษในครั้งนี้และลงนามเป็นพยานอย่างน้อย 2 คน</div>
-      <div class="wl-chk"><span class="wl-chk-icon">{_chk(notif_method == 'mail')}</span> ส่งไปรษณีย์ลงทะเบียนตามที่อยู่ที่ติดต่อได้</div>
-    </td></tr>
-    {sig_html}
-  </table>
-</div>"""
-    return build_html(css, content)
+    body = f"""
+<p>หนังสือฉบับนี้ทำขึ้นเมื่อวันที่ {e(date_text)} ระหว่าง {nowrap(g('companyName'))} {nowrap(g('companyAddress'))}</p>
+{fields([
+    [('นาย / นาง / นางสาว', emp_name)],
+    [('เลขประจำตัวประชาชน', g('employeeIdCard')), ('รหัสพนักงาน', g('employeeCode'))],
+    [('ตำแหน่ง', g('employeePosition')), ('แผนก', g('employeeDepartment'))],
+])}
+<div class="sec">พฤติการณ์การกระทำผิดที่เกิดขึ้น เมื่อวันที่ {e(g('incidentDate'))}</div>
+<div class="box">{paragraphs(data.get('violationDetails', '')) or '<p>&nbsp;</p>'}</div>
+<p class="ul">ดังนั้นการกระทำของท่านถือว่าไม่สอดคล้องกับระเบียบและข้อบังคับเกี่ยวกับการทำงานของบริษัท จึงถือเป็นการกระทำความผิดต่อบริษัทและทำให้บริษัทได้รับความเสียหายจากการกระทำของท่าน</p>
+<div class="sec">การลงโทษในครั้งนี้</div>
+{option(punishment == 'verbal', 'ตักเตือนด้วยวาจา')}
+{option(punishment == 'written', 'ตักเตือนเป็นลายลักษณ์อักษร')}
+{option(punishment == 'suspension', 'พักงานโดยไม่ได้รับค่าจ้างและตักเตือนเป็นลายลักษณ์อักษร')}
+<p style="margin-top:3mm">ขอตักเตือนผู้กระทำความผิดโดยห้ามมิให้กระทำความผิดเดิมซ้ำอีกมิฉะนั้นจะลงโทษในสถานหนักต่อไป แต่หากได้ลงโทษผู้กระทำความผิดโดยตักเตือนเป็นลายลักษณ์อักษรหรือพักงานโดยไม่ได้รับค่าจ้างและตักเตือนเป็นลายลักษณ์อักษรในครั้งนี้แล้ว ถ้าได้กระทำความผิดเดิมซ้ำอีกในคราวต่อไป <b class="ul">ภายในระยะเวลา 1 (หนึ่ง) ปี</b> นับแต่วันที่กระทำความผิดครั้งนี้ ผู้กระทำความผิดจะต้องถูกลงโทษด้วยการเลิกจ้างโดยไม่จ่ายค่าชดเชยใด ๆ ทั้งสิ้น เว้นแต่มีเหตุให้บรรเทาโทษซึ่งอาจจะลดโทษให้ได้ตามสมควร</p>
+<div class="note">
+  <p><b class="ul">หมายเหตุ</b> ในกรณีที่พนักงานที่ถูกลงโทษไม่ยินยอมลงนามในหนังสือตักเตือนดังกล่าวข้างต้นศาลฎีกาแผนกคดีแรงงานได้เคยวินิจฉัยว่าหากนายจ้างได้แจ้งพนักงานที่ถูกลงโทษโดยชอบด้วยกฎหมายแล้วให้ถือว่าหนังสือตักเตือนมีผลสมบูรณ์</p>
+  <p>— หากพนักงานไม่รับหนังสือเตือน บริษัทจะจัดส่งหนังสือเตือนไปยังภูมิลำเนา และ/หรือ อีเมล และ/หรือ ไลน์แจ้งหนังสือเตือน และให้ถือว่าท่านรับหนังสือเตือนดังกล่าวโดยชอบแล้ว</p>
+</div>
+<div class="keep">
+<div class="sec">วิธีการแจ้ง</div>
+<p class="flush">ด้วยวิธีใดวิธีหนึ่ง ดังต่อไปนี้</p>
+{option(notif_method == 'posted', 'ติดประกาศให้ทราบในสถานประกอบการ')}
+{option(notif_method == 'read_aloud', 'อ่านให้ผู้กระทำความผิดทราบ โดยมีพยานรับรู้การลงโทษในครั้งนี้และลงนามเป็นพยานอย่างน้อย 2 คน')}
+{option(notif_method == 'mail', 'ส่งไปรษณีย์ลงทะเบียนตามที่อยู่ที่ติดต่อได้')}
+{signatures([
+    ('นายจ้าง/บริษัท', g('companySignerName')),
+    ('นายจ้าง/บริษัท (คนที่ 2)', co2) if co2 else None,
+    ('พนักงาน', str(data.get('employeeSignerName', emp_name) or '').strip()),
+    ('หัวหน้างาน', g('supervisorName')),
+    ('พยาน', g('witness1Name')),
+    ('พยาน', g('witness2Name')),
+])}
+</div>
+"""
+    return document('หนังสือตักเตือนพนักงาน', body, g('docNumber'), _BASE_PT)
 
 
-# ══════════════════════════════════════════════════════════════════════
-# PDF MERGE
-# ══════════════════════════════════════════════════════════════════════
-
-def _merge_multi_page(content_bytes, entity_key):
-    """Overlay ทุกหน้าของ content บน entity template"""
-    from io import BytesIO
-    from pypdf import PdfReader, PdfWriter
-    from pypdf.generic import NameObject
-    from template_utils import resolve_template
-    import os
-
-    base = os.path.dirname(os.path.abspath(__file__))
-    tpl_name = resolve_template(entity_key)
-    tpl_path = os.path.join(base, tpl_name)
-
-    if not os.path.exists(tpl_path):
-        tpl_path = os.path.join(base, 'bg_template_scmtech.pdf')
-    if not os.path.exists(tpl_path):
-        return content_bytes
-
-    content_reader = PdfReader(BytesIO(content_bytes))
-    writer = PdfWriter()
-
-    for page in content_reader.pages:
-        tpl_reader = PdfReader(tpl_path)
-        bg = tpl_reader.pages[0]
-
-        # ★ v7-s15 FIX: rename font ใน CONTENT (ไม่ใช่ template)
-        # เพราะ template font เป็น TrueType subset ที่มี fixed glyph mapping
-        # ถ้า rename template → glyph mapping เพี้ยน → garbled
-        # Content font เป็น Type0 + มี ToUnicode CMap → rename แล้วยัง map ได้ถูก
-        content_fonts = page.get("/Resources", {}).get("/Font", {})
-        for key in list(content_fonts.keys()):
-            try:
-                font_obj = content_fonts[key].get_object()
-                base_font = str(font_obj.get("/BaseFont", ""))
-                if "THSarabunNew" in base_font and "TPL" not in base_font:
-                    new_bf = base_font.replace("THSarabunNew", "THSarabunNewCTN")
-                    font_obj[NameObject("/BaseFont")] = NameObject("/" + new_bf.lstrip("/"))
-                    # DescendantFonts (Type0)
-                    if "/DescendantFonts" in font_obj:
-                        desc_arr = font_obj["/DescendantFonts"]
-                        for desc_ref in desc_arr:
-                            desc = desc_ref.get_object()
-                            dbf = str(desc.get("/BaseFont", ""))
-                            if "THSarabunNew" in dbf and "CTN" not in dbf:
-                                desc[NameObject("/BaseFont")] = NameObject("/" + dbf.replace("THSarabunNew", "THSarabunNewCTN").lstrip("/"))
-                            if "/FontDescriptor" in desc:
-                                fd = desc["/FontDescriptor"].get_object()
-                                fn = str(fd.get("/FontName", ""))
-                                if "THSarabunNew" in fn and "CTN" not in fn:
-                                    fd[NameObject("/FontName")] = NameObject("/" + fn.replace("THSarabunNew", "THSarabunNewCTN").lstrip("/"))
-                    # FontDescriptor (TrueType)
-                    if "/FontDescriptor" in font_obj:
-                        fd = font_obj["/FontDescriptor"].get_object()
-                        fn = str(fd.get("/FontName", ""))
-                        if "THSarabunNew" in fn and "CTN" not in fn:
-                            fd[NameObject("/FontName")] = NameObject("/" + fn.replace("THSarabunNew", "THSarabunNewCTN").lstrip("/"))
-            except Exception:
-                pass
-
-        bg.merge_page(page)
-        writer.add_page(bg)
-
-    out = BytesIO()
-    writer.write(out)
-    return out.getvalue()
+# เดิมฟังก์ชันซ้อนหัวกระดาษเขียนซ้ำอยู่ในไฟล์นี้และไฟล์สัญญาฝึกอบรม — ย้ายไป hr_doc_layout
+_merge_multi_page = merge_multi_page
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -280,13 +104,13 @@ def register_warning_letter_routes(app):
             html = _build_warning_html(data)
             content_bytes = html_to_pdf(html)
             entity_key = data.get('entityKey', '')
-            pdf_bytes = _merge_multi_page(content_bytes, entity_key)
+            pdf_bytes = merge_multi_page(content_bytes, entity_key)
             pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
 
             emp = (data.get('employeeName', '') or 'warning')[:30]
             safe_name = ''.join(
                 ch for ch in emp
-                if ch.isalnum() or ch in '_- ' or '\u0e00' <= ch <= '\u0e7f'
+                if ch.isalnum() or ch in '_- ' or '฀' <= ch <= '๿'
             ).strip() or 'warning'
 
             return jsonify({

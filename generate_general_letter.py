@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v3-s41-defense-in-depth
+# VERSION: v4-multipage
 """
 generate_general_letter.py — หนังสือทั่วไป (General Letter)
 ═══════════════════════════════════════════════════════════
@@ -36,6 +36,12 @@ POST /generate_general_letter
 
 ★ เนื้อหาเยอะ → ลายเซ็นเลื่อนลงตาม (WeasyPrint จัดให้อัตโนมัติ)
 ★ overlay บน entity template (logo + watermark ตามบริษัท)
+
+★ v4 (2026-10) — หนังสือยาวเกิน 1 หน้า:
+  เดิมซ้อนหัวกระดาษเฉพาะหน้าแรกของเนื้อหา → ส่วนที่เกินหน้า 1 (รวมคำลงท้าย/ลายเซ็น) หายจาก PDF
+  และข้อความท้ายหน้าทับแถบที่อยู่ของหัวกระดาษ
+  ตอนนี้ถ้าเนื้อหาเกิน 1 หน้า จะจัดหน้าใหม่ด้วยขอบกระดาษจริง แล้วซ้อนหัวกระดาษทุกหน้า
+  (หนังสือหน้าเดียวใช้ทางเดิมทุกประการ)
 """
 
 import base64
@@ -125,7 +131,33 @@ def _pick(data, *keys):
 # ══════════════════════════════════════════════════════════════════════
 
 # ความสามารถที่ route นี้รองรับ — ส่งกลับใน response ให้ GAS รู้ว่าบริการรุ่นนี้พิมพ์ "อ้างถึง" ได้
-FEATURES = ['references']
+# และหนังสือยาวหลายหน้าได้ ('multipage')
+FEATURES = ['references', 'multipage']
+
+
+def _paged_css(doc_number):
+    """CSS เพิ่มสำหรับหนังสือที่ยาวเกิน 1 หน้า — ใช้ขอบกระดาษจริงแทน padding ของ .page
+    (padding มีผลเฉพาะต้น/ท้ายกล่อง หน้า 2 จึงเริ่มชิดขอบบนและหน้าแรกล้นทับแถบที่อยู่)
+    พื้นที่เนื้อหาของหน้าแรกเท่าเดิมทุกประการ ; หน้า 2 เป็นต้นไปมี "เลขที่ … · หน้า x / y" ที่ขอบบน"""
+    num = str(doc_number or '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ').replace('\r', ' ').strip()
+    head = ('"เลขที่ %s    ·    หน้า " counter(page) " / " counter(pages)' % num) if num \
+        else '"หน้า " counter(page) " / " counter(pages)'
+    return """
+    @page {
+        size: A4;
+        margin: 32mm 20mm 25mm 25mm;
+        @top-left {
+            content: %s;
+            font-family: 'THSarabunNew', 'TH Sarabun New', serif; font-size: 10pt; color: #333;
+            white-space: pre; vertical-align: bottom; padding-bottom: 4mm;
+        }
+    }
+    @page :first { @top-left { content: none; } }
+    .page { width: auto; min-height: 0; padding: 0; }
+    .para { orphans: 2; widows: 2; }
+    .closing-area, .sig-closing { page-break-inside: avoid; }
+    .keep-tail { page-break-inside: avoid; }   /* ย่อหน้าสุดท้าย + คำลงท้าย/ลายเซ็น อยู่หน้าเดียวกัน */
+    """ % head
 
 
 def _references(data):
@@ -156,8 +188,9 @@ def _references_html(refs):
 # BUILD HTML — layout เหมือนหนังสือขอถอน BG
 # ══════════════════════════════════════════════════════════════════════
 
-def _build_general_letter_html(data):
-    """สร้าง HTML หนังสือทั่วไป — ใช้ class จาก build_css() ของ template_utils"""
+def _build_general_letter_html(data, paged=False):
+    """สร้าง HTML หนังสือทั่วไป — ใช้ class จาก build_css() ของ template_utils
+    paged=True → จัดหน้าแบบหลายหน้า (ดู _paged_css)"""
 
     entity_key = str(data.get('entityKey', '') or '')
     entity_name = _pick(data, 'writtenAt') or _resolve_entity_name(entity_key)
@@ -230,7 +263,8 @@ def _build_general_letter_html(data):
     else:
         paras = ['(กรุณาระบุเนื้อหา)']
 
-    body_html = '\n'.join(f'  <p class="para">{_esc(p)}</p>' for p in paras)
+    para_html = [f'  <p class="para">{_esc(p)}</p>' for p in paras]
+    body_html = '\n'.join(para_html)
 
     # ─────────────────────────────────────────────────────────────────
     # Sig closing: เลือก variant ตามว่ามี signature/stamp หรือไม่
@@ -258,6 +292,12 @@ def _build_general_letter_html(data):
 
     # ── สร้าง page HTML ──
     css = build_css()
+    if paged:
+        css += _paged_css(data.get('docNumber', ''))
+        # ลายเซ็นไม่ไปอยู่หน้าสุดท้ายลำพัง — ผูกกับย่อหน้าสุดท้าย
+        if sig_html:
+            body_html = '\n'.join(para_html[:-1])
+            sig_html = '<div class="keep-tail">\n' + para_html[-1] + '\n' + sig_html + '\n</div>'
     page = f"""<div class="page">
   {'<div class="doc-number">เลขที่ ' + doc_number + '</div>' if doc_number else ''}
   <div class="title">{title}</div>
@@ -286,7 +326,21 @@ def generate_general_letter_pdf(data):
 
     # overlay บน entity template (logo + watermark ตามบริษัท)
     entity_key = data.get('entityKey', '')
+    if _page_count(content_bytes) > 1:
+        # เนื้อหาเกิน 1 หน้า → จัดหน้าใหม่แบบหลายหน้า แล้วซ้อนหัวกระดาษทุกหน้า
+        from hr_doc_layout import merge_multi_page
+        content_bytes = html_to_pdf(_build_general_letter_html(data, paged=True))
+        return merge_multi_page(content_bytes, entity_key)
     return merge_on_template(content_bytes, entity_key)
+
+
+def _page_count(pdf_bytes):
+    from io import BytesIO
+    from pypdf import PdfReader
+    try:
+        return len(PdfReader(BytesIO(pdf_bytes)).pages)
+    except Exception:
+        return 1
 
 
 # ══════════════════════════════════════════════════════════════════════
