@@ -27,11 +27,12 @@ POST /generate_general_letter
     subject,
     recipientName | letterRecipient | recipient,
     bodyParagraphs | letterBody | body,
+    references | letterReferences,           — "อ้างถึง": list หรือข้อความหลายบรรทัด
     signerName, signerPosition,
     signatureKey,                            — string key ของลายเซ็น
     useSignature (bool) → signatureKey='pitichai' (ถ้าเดินเข้ามา),
     stampKey | stampType,
-  Output: { success, pdfBase64, fileName }
+  Output: { success, pdfBase64, fileName, features }
 
 ★ เนื้อหาเยอะ → ลายเซ็นเลื่อนลงตาม (WeasyPrint จัดให้อัตโนมัติ)
 ★ overlay บน entity template (logo + watermark ตามบริษัท)
@@ -120,6 +121,38 @@ def _pick(data, *keys):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# "อ้างถึง" — เดิม GAS ส่ง references มาแต่ไม่ถูกพิมพ์ใน PDF
+# ══════════════════════════════════════════════════════════════════════
+
+# ความสามารถที่ route นี้รองรับ — ส่งกลับใน response ให้ GAS รู้ว่าบริการรุ่นนี้พิมพ์ "อ้างถึง" ได้
+FEATURES = ['references']
+
+
+def _references(data):
+    """รายการอ้างถึง: list หรือข้อความหลายบรรทัด → list ของข้อความที่ไม่ว่าง (สูงสุด 20)"""
+    raw = data.get('references')
+    if raw is None or raw == '':
+        raw = data.get('letterReferences') or []
+    if isinstance(raw, str):
+        raw = raw.splitlines()
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return [str(r).strip() for r in raw if r is not None and str(r).strip()][:20]
+
+
+def _references_html(refs):
+    """บรรทัด "อ้างถึง" ใต้ "เรียน" — รายการเดียวไม่ใส่เลขลำดับ"""
+    if not refs:
+        return ''
+    if len(refs) == 1:
+        value = _esc(refs[0])
+    else:
+        value = '<br>'.join(f'{i}. {_esc(r)}' for i, r in enumerate(refs, 1))
+    return ('<div class="subject-line"><span class="subject-label">อ้างถึง</span>'
+            f'<span class="subject-value">{value}</span></div>')
+
+
+# ══════════════════════════════════════════════════════════════════════
 # BUILD HTML — layout เหมือนหนังสือขอถอน BG
 # ══════════════════════════════════════════════════════════════════════
 
@@ -146,6 +179,9 @@ def _build_general_letter_html(data):
 
     # recipientName: "เรียน" — รับได้ 3 ชื่อ
     recipient = _esc(_pick(data, 'recipientName', 'letterRecipient', 'recipient'))
+
+    # references: "อ้างถึง" — รับ list หรือข้อความหลายบรรทัด (GAS ส่ง list)
+    refs = _references(data)
 
     # signerName / signerPosition
     signer_name = _pick(data, 'signerName', 'companySignerName', 'signer1')
@@ -228,6 +264,7 @@ def _build_general_letter_html(data):
   <div class="written-at">เขียนที่ {_esc(entity_name)}<br>วันที่ {doc_date}</div>
   {'<div class="subject-line"><span class="subject-label">เรื่อง</span><span class="subject-value">' + subject + '</span></div>' if subject else ''}
   {'<div class="subject-line"><span class="subject-label">เรียน</span><span class="subject-value">' + recipient + '</span></div>' if recipient else ''}
+  {_references_html(refs)}
 {body_html}
   {sig_html}
   <div class="clearfix"></div>
@@ -286,6 +323,7 @@ def register_general_letter_routes(app):
                 'success':   True,
                 'pdfBase64': pdf_b64,
                 'fileName':  filename,
+                'features':  FEATURES,
             })
         except Exception as e:
             logger.error(f'generate_general_letter error: {e}')
