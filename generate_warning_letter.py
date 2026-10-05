@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v8-layout
+# VERSION: v9-sarabun14
 """
 generate_warning_letter.py — หนังสือตักเตือนพนักงาน (Warning Letter)
 ═══════════════════════════════════════════════════════════════════
+
+★ v9 (2026-10): TH Sarabun New 14 (ขนาดแบบ Word) + ไม่มีเส้นกรอบ — กำหนดที่ hr_doc_layout / template_utils
 
 ★ v8 (2026-10): จัดหน้าใหม่ด้วย hr_doc_layout
   - ข้อความไม่ชิดเส้นกรอบ (เดิมระยะขอบในกรอบถูกกฎ CSS อื่นทับเป็น 0)
@@ -21,9 +23,6 @@ from hr_doc_layout import (
 )
 
 logger = logging.getLogger(__name__)
-
-# ขนาดตัวอักษรเนื้อหา (pt)
-_BASE_PT = 11.5
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -78,7 +77,7 @@ def _build_warning_html(data):
 ])}
 </div>
 """
-    return document('หนังสือตักเตือนพนักงาน', body, g('docNumber'), _BASE_PT)
+    return document('หนังสือตักเตือนพนักงาน', body, g('docNumber'))
 
 
 # เดิมฟังก์ชันซ้อนหัวกระดาษเขียนซ้ำอยู่ในไฟล์นี้และไฟล์สัญญาฝึกอบรม — ย้ายไป hr_doc_layout

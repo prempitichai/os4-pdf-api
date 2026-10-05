@@ -81,7 +81,7 @@ def generate_bg_withdraw():
         else:
             paras = [p1, p2, p3]
 
-        body_html = '\n'.join(f'  <p class="para">{p}</p>' for p in paras)
+        para_html = [f'  <p class="para">{p}</p>' for p in paras]
 
         # ★ v4 — เลือก sig closing: มี image หรือไม่?
         # ── ถ้ามี sig_key หรือ stamp_key → ใช้ build_sig_closing_with_image
@@ -96,7 +96,11 @@ def generate_bg_withdraw():
         else:
             sig_block = sig_closing(signer, spos)
 
-        css = build_css()
+        # ย่อหน้าสุดท้าย + คำลงท้าย/ลายเซ็น อยู่หน้าเดียวกัน (ไม่มีหน้าลายเซ็นลำพัง)
+        body_html = '\n'.join(para_html[:-1])
+        tail_html = '<div class="keep-tail">\n' + para_html[-1] + '\n' + sig_block + '\n</div>'
+
+        css = build_css(doc_number=docnum)
         page = f"""<div class="page">
   <div class="doc-number">เลขที่ {docnum}</div>
   <div class="title">หนังสือแจ้งขอถอนหลักประกันสัญญา</div>
@@ -104,7 +108,7 @@ def generate_bg_withdraw():
   <div class="subject-line"><span class="subject-label">เรื่อง</span><span class="subject-value">ขอถอนหลักประกันสัญญา</span></div>
   <div class="subject-line"><span class="subject-label">เรียน</span><span class="subject-value">{co}</span></div>
 {body_html}
-  {sig_block}
+  {tail_html}
   <div class="clearfix"></div>
 </div>"""
 
@@ -177,7 +181,8 @@ def generate_bg_poa():
         else:
             poa_paras = [body_default, p2_default]
 
-        poa_body = '\n'.join(f'  <p class="para">{p}</p>' for p in poa_paras)
+        poa_html = [f'  <p class="para">{p}</p>' for p in poa_paras]
+        poa_body = '\n'.join(poa_html[:-1])
         sigs = '\n'.join([
             sig_poa_line('ผู้มอบอำนาจ', gr_name),
             sig_poa_line('ผู้รับมอบอำนาจ', ge_name),
@@ -185,37 +190,21 @@ def generate_bg_poa():
             sig_poa_line('พยาน', w2),
         ])
 
-        # Override: fix sig-col overflow — position signature block absolutely
-        # so it always appears at bottom of page regardless of paragraph count
-        poa_css_override = """
-    .page {
-        position: relative !important;
-        height: 297mm !important;
-        min-height: 0 !important;
-        overflow: hidden !important;
-    }
-    .sig-col {
-        position: absolute !important;
-        bottom: 32mm !important;
-        right: 20mm !important;
-        width: 50% !important;
-        margin-top: 0 !important;
-    }
-    .stamp {
-        position: absolute !important;
-        bottom: 24mm !important;
-        left: 25mm !important;
-        margin-top: 0 !important;
-    }
-"""
-        css = build_css() + poa_css_override
+        # ช่องลงนามอยู่ต่อจากข้อความตามปกติ ไม่ถูกตัดข้ามหน้า และอยู่หน้าเดียวกับย่อหน้าสุดท้ายเสมอ
+        # (เดิมตรึงไว้ท้ายหน้าด้วย position:absolute + ซ่อนส่วนที่ล้น — ข้อความยาวจะถูกลายเซ็นทับ/หายไป)
+        css = build_css(doc_number=docnum)
         page = f"""<div class="page">
   {'<div class="doc-number">เลขที่ ' + docnum + '</div>' if docnum else ''}
   <div class="title">หนังสือมอบอำนาจ</div>
   <div class="written-at">ทำที่ {ename}<br>วันที่ {doc_date}</div>
 {poa_body}
-  <div class="sig-col">{sigs}</div>
-  <div class="stamp">ติดอากรแสตมป์ 10 บาท</div>
+  <div class="keep-tail">
+{poa_html[-1]}
+  <table class="poa-sign"><tr>
+    <td style="width:45%"><div class="stamp">ติดอากรแสตมป์ 10 บาท</div></td>
+    <td style="width:55%"><div class="sig-col">{sigs}</div></td>
+  </tr></table>
+  </div>
 </div>"""
 
         final = merge_on_template(html_to_pdf(build_html(css, page)), entity_key)

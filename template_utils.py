@@ -94,103 +94,195 @@ def font_b64():
 
 
 # ══════════════════════════════════════════════════════════════════════
+# ขนาดตัวอักษรมาตรฐานของทุกฟอร์ม — "TH Sarabun New 14" แบบเดียวกับใน Word
+# ══════════════════════════════════════════════════════════════════════
+# ไฟล์ fonts/THSarabunNew*.ttf ของบริการนี้เป็น TH Sarabun New ที่ตัวอักษร "ใหญ่กว่า" ฟอนต์ต้นฉบับที่ขนาด pt เดียวกัน:
+#   ความสูงตัวพิมพ์ใหญ่ (H) 0.728 em  เทียบกับ 0.476 em ของ TH Sarabun New v1.35 / TH SarabunPSK ที่ Word ใช้
+#   → ตัวอักษรใหญ่กว่า 1.53 เท่า (วัดซ้ำด้วยความกว้างบรรทัดจริงแล้วตรงกัน)
+# ดังนั้น "10pt" ในโค้ดเดิม = 15.3pt ใน Word และแต่ละฟอร์มเคยใช้ขนาดจริงต่างกันตั้งแต่ 9 ถึง 24pt
+# ทุกฟอร์มจึงต้องกำหนดขนาดผ่าน th_pt() — ใส่ขนาดแบบที่เห็นใน Word แล้วได้ค่า pt ของไฟล์ฟอนต์นี้
+FONT_SCALE = 0.728 / 0.476
+
+
+def th_pt(word_pt):
+    """ขนาดตัวอักษรแบบ Word (เช่น 14) → ค่า pt ที่ต้องใช้กับไฟล์ฟอนต์ของบริการนี้"""
+    return round(word_pt / FONT_SCALE, 2)
+
+
+BODY_PT  = th_pt(14)    # เนื้อหา ป้าย ช่องกรอก ตาราง — ทุกฟอร์ม
+TITLE_PT = th_pt(16)    # ชื่อเอกสาร (ตัวหนา)
+SMALL_PT = th_pt(12)    # ข้อความขอบกระดาษ: เลขที่/เลขหน้า, ที่อยู่บริษัทท้ายฟอร์ม
+LINE_PT  = 18           # ระยะบรรทัดของหนังสือ (pt จริง) ≈ ระยะบรรทัดเดี่ยวของ TH Sarabun New 14 ใน Word (18.6)
+LINE_H   = round(LINE_PT / BODY_PT, 3)   # ค่า line-height ของ CSS
+
+_FONT_FACE_CACHE = {}
+
+
+def font_face_css():
+    """@font-face ของ THSarabunNew (ฝัง base64) — ใช้ร่วมกันทุกฟอร์มที่สร้างจาก HTML"""
+    if 'css' not in _FONT_FACE_CACHE:
+        fonts = font_b64()
+        css = ''
+        for weight, fn in (('normal', 'THSarabunNew.ttf'), ('bold', 'THSarabunNew-Bold.ttf')):
+            if fonts.get(fn):
+                css += ("@font-face { font-family: 'THSarabunNew'; font-weight: %s; "
+                        "src: url('data:font/truetype;base64,%s') format('truetype'); }\n" % (weight, fonts[fn]))
+        _FONT_FACE_CACHE['css'] = css
+    return _FONT_FACE_CACHE['css']
+
+
+def checkbox_svg(checked, mark='tick', size_mm=3.6):
+    """ช่องตัวเลือกแบบ SVG (ไม่ขึ้นกับฟอนต์สำรองของเครื่อง — THSarabunNew ไม่มีอักขระ ☐ ☒ ✓)
+    mark: 'tick' = ✓ , 'cross' = ✕"""
+    if not checked:
+        m = ''
+    elif mark == 'cross':
+        m = '<path d="M3 3 L9 9 M9 3 L3 9" stroke="#000" stroke-width="1.5" stroke-linecap="round"/>'
+    else:
+        m = '<path d="M2.6 6.3 L5 8.8 L9.5 3.2" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
+    return ('<svg class="cbx" viewBox="0 0 12 12" width="%smm" height="%smm" xmlns="http://www.w3.org/2000/svg">'
+            '<rect x="0.7" y="0.7" width="10.6" height="10.6" fill="#fff" stroke="#000" stroke-width="1.1"/>%s</svg>'
+            % (size_mm, size_mm, m))
+
+
+# ── ตัดบรรทัดสำหรับฟอร์มที่วาดด้วย ReportLab (ไม่มีตัวตัดคำภาษาไทย) ──
+_TH_NO_START = set('ะัาำิีึืฺุู็่้๊๋์ํๅๆฯ')   # สระ/วรรณยุกต์ที่ต้องเกาะตัวอักษรข้างหน้า — ห้ามขึ้นต้นบรรทัด
+_TH_NO_END   = set('เแโใไั')                  # สระนำ และไม้หันอากาศ (ต้องมีตัวสะกดตาม) — ห้ามอยู่ท้ายบรรทัด
+_TH_TONES    = set('่้๊๋')
+
+
+def wrap_text(width_of, text, max_w, max_lines=2):
+    """ตัดข้อความเป็นไม่เกิน max_lines บรรทัด — width_of(ข้อความ) คืนความกว้างเป็น pt
+    เลือกตัดที่ช่องว่างก่อน ; ถ้าไม่มี ตัดระหว่างตัวอักษรโดยไม่แยกสระ/วรรณยุกต์ออกจากพยัญชนะ
+    (เดิมตัดตรงตัวอักษรที่ล้นพอดี จึงได้บรรทัดอย่าง "…รักษาคว" / "ามปลอดภัย…")
+    บรรทัดสุดท้ายลงท้ายด้วย '…' ถ้าข้อความยังเหลือ"""
+    t = ' '.join(str(text or '').split())
+    if not t:
+        return ['']
+    lines = []
+    while t and len(lines) < max_lines:
+        if width_of(t) <= max_w:
+            lines.append(t)
+            break
+        last = len(lines) == max_lines - 1
+        suffix = '…' if last else ''
+        lo, hi = 1, len(t) - 1
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if width_of(t[:mid] + suffix) <= max_w:
+                lo = mid
+            else:
+                hi = mid - 1
+        cut = lo
+        sp = t.rfind(' ', 0, cut + 1)
+        if sp > cut * 0.5:
+            cut = sp
+        else:
+            while cut > 1 and (t[cut] in _TH_NO_START or t[cut - 1] in _TH_NO_END
+                               or (t[cut - 1] in _TH_TONES and t[cut - 2] == 'ั')):
+                cut -= 1
+        lines.append(t[:cut].rstrip() + suffix)
+        t = t[cut:].lstrip()
+    return lines or ['']
+
+
+def css_str(s):
+    """ข้อความสำหรับใส่ใน content: "…" ของ CSS"""
+    return (str('' if s is None else s).replace('\\', '\\\\').replace('"', '\\"')
+            .replace('\n', ' ').replace('\r', ' '))
+
+
+def page_head_css(doc_number=''):
+    """ค่า content ของหัวกระดาษ: เลขที่ … · หน้า x / y"""
+    num = css_str(doc_number).strip()
+    return ('"เลขที่ %s    ·    หน้า " counter(page) " / " counter(pages)' % num) if num \
+        else '"หน้า " counter(page) " / " counter(pages)'
+
+
+# ══════════════════════════════════════════════════════════════════════
 # CSS BUILDER
 # ══════════════════════════════════════════════════════════════════════
 
-def build_css(fonts=None):
-    """สร้าง CSS สำหรับ A4 PDF — TH Sarabun New + justify + signature layout
-    
-    รองรับ class ที่ทุกฟอร์มใช้ร่วมกัน:
-        .page          — A4 container พร้อม padding
+def build_css(fonts=None, doc_number=''):
+    """CSS ของหนังสือ (หนังสือทั่วไป / ขอถอนหลักประกัน / มอบอำนาจ) — TH Sarabun New 14
+
+    ใช้ขอบกระดาษจริง (@page margin) — เนื้อหายาวเกินหน้าขึ้นหน้าใหม่ได้ และหน้า 2 เป็นต้นไปมี
+    "เลขที่ … · หน้า x / y" ที่ขอบบน (เดิมใช้กล่อง .page สูง 297mm + padding: ข้อความที่เกินหน้าแรกหาย)
+
+    class ที่ฟอร์มใช้ร่วมกัน:
         .doc-number    — เลขที่หนังสือ (บนซ้าย)
         .title         — ชื่อหนังสือ (กลาง, bold)
         .written-at    — ทำที่/วันที่ (ขวา)
         .subject-line  — เรื่อง/เรียน (flex)
-        .para          — เนื้อหา (justify, indent)
+        .para          — เนื้อหา (indent)
         .closing-area  — ขอแสดงความนับถือ (ขวา)
         .sig-block     — ลายเซ็น (กลาง)
         .sig-col       — ลายเซ็นแบบ column (มอบอำนาจ)
         .sig-right     — ลายเซ็นแต่ละบรรทัด
+        .keep-tail     — ย่อหน้าสุดท้าย + ลายเซ็น อยู่หน้าเดียวกัน
     """
-    if fonts is None:
-        fonts = font_b64()
-    
-    reg  = fonts.get('THSarabunNew.ttf', '')
-    bold = fonts.get('THSarabunNew-Bold.ttf', '')
-    ff   = ''
-    if reg:
-        ff += f"""
-        @font-face {{
-            font-family: 'THSarabunNew';
-            font-weight: normal;
-            src: url('data:font/truetype;base64,{reg}') format('truetype');
-        }}"""
-    if bold:
-        ff += f"""
-        @font-face {{
-            font-family: 'THSarabunNew';
-            font-weight: bold;
-            src: url('data:font/truetype;base64,{bold}') format('truetype');
-        }}"""
-    
     return f"""
-    {ff}
-    @page {{ size: A4; margin: 0; }}
+    {font_face_css()}
+    @page {{
+        size: A4;
+        margin: 32mm 20mm 25mm 25mm;
+        @top-left {{
+            content: {page_head_css(doc_number)};
+            font-family: 'THSarabunNew', 'TH Sarabun New', serif; font-size: {SMALL_PT}pt; color: #333;
+            white-space: pre; vertical-align: bottom; padding-bottom: 4mm;
+        }}
+    }}
+    @page :first {{ @top-left {{ content: none; }} }}
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
         font-family: 'THSarabunNew', 'TH Sarabun New', serif;
-        font-size: 10pt;
+        font-size: {BODY_PT}pt;
+        line-height: {LINE_H};
         color: #000;
         background: transparent;
     }}
-    .page {{
-        width: 210mm;
-        min-height: 297mm;
-        padding: 32mm 20mm 25mm 25mm;
-    }}
     /* ── หัวหนังสือ ── */
-    .doc-number  {{ font-size: 10pt; margin-bottom: 6mm; }}
-    .title       {{ font-size: 12pt; font-weight: bold; text-align: center; margin-bottom: 8mm; }}
-    .written-at  {{ font-size: 10pt; text-align: right; margin-bottom: 6mm; line-height: 1.6; }}
+    .doc-number  {{ margin-bottom: 5mm; }}
+    .title       {{ font-size: {TITLE_PT}pt; font-weight: bold; text-align: center; margin-bottom: 7mm; }}
+    .written-at  {{ text-align: right; margin-bottom: 5mm; }}
     /* ── เรื่อง/เรียน ── */
-    .subject-line  {{ display: flex; margin-bottom: 4mm; }}
+    .subject-line  {{ display: flex; margin-bottom: 2.5mm; }}
     .subject-label {{ font-weight: bold; min-width: 18mm; flex-shrink: 0; }}
     .subject-value {{ flex: 1; }}
     /* ── ย่อหน้า ── */
     .para {{
-        font-size: 10pt;
         text-align: left;
         text-indent: 12mm;
-        line-height: 1.6;
-        margin-bottom: 4mm;
+        margin-bottom: 3mm;
+        orphans: 2; widows: 2;
     }}
+    .subject-line + .para {{ margin-top: 4mm; }}
+    .keep-tail {{ page-break-inside: avoid; }}
     /* ── ลายเซ็น (ขอถอน — ขวา) ── */
     .closing-area {{
         display: flex;
         flex-direction: column;
         align-items: flex-end;
         margin-top: 8mm;
+        page-break-inside: avoid;
     }}
-    .closing     {{ font-size: 10pt; margin-bottom: 4mm; text-align: center; width: 75mm; }}
+    .sig-closing {{ page-break-inside: avoid; }}
+    .closing     {{ margin-bottom: 4mm; text-align: center; width: 75mm; }}
     .sig-block   {{ text-align: center; width: 75mm; }}
     .sig-space   {{ height: 18mm; }}
     .sig-line    {{
         border-top: 0.5pt solid #000;
         width: 75mm;
-        margin: 0 auto 2mm auto;
-        padding-top: 2mm;
-        font-size: 10pt;
+        margin: 0 auto 0.5mm auto;
+        padding-top: 1.5mm;
     }}
-    .sig-name    {{ font-size: 10pt; margin-bottom: 1mm; }}
-    .sig-pos     {{ font-size: 10pt; }}
+    .sig-name    {{ margin-bottom: 0; }}
     /* ── ลายเซ็น (มอบอำนาจ — column ขวา) ── */
-    .sig-col {{
-        width: 50%;
-        margin-left: auto;
-        margin-top: 8mm;
-    }}
+    table.poa-sign {{ width: 100%; border-collapse: collapse; margin-top: 6mm; page-break-inside: avoid; }}
+    table.poa-sign td {{ vertical-align: bottom; padding: 0; }}
+    .sig-col {{ width: 100%; }}
     .sig-right {{
-        margin-bottom: 6mm;
+        margin-bottom: 4mm;
         width: 100%;
     }}
     .sig-right .sig-space {{ height: 10mm; }}
@@ -200,11 +292,10 @@ def build_css(fonts=None):
         width: 100%;
     }}
     .sig-right .sig-row1 .prefix {{
-        font-size: 10pt;
         white-space: nowrap;
         flex-shrink: 0;
-        padding-bottom: 0.5mm;
         padding-right: 1mm;
+        line-height: 1.2;
     }}
     .sig-right .sig-row1 .line-cell {{
         flex: 1;
@@ -213,24 +304,22 @@ def build_css(fonts=None):
         min-width: 0;
     }}
     .sig-right .sig-row1 .lbl {{
-        font-size: 9pt;
         white-space: nowrap;
         flex-shrink: 0;
-        flex-basis: 22mm;
-        width: 22mm;
+        flex-basis: 24mm;
+        width: 24mm;
         text-align: left;
-        padding-bottom: 0.5mm;
-        padding-left: 1mm;
+        padding-left: 1.5mm;
+        line-height: 1.2;
     }}
     .sig-right .sig-name {{
-        font-size: 10pt;
-        margin-top: 1mm;
+        margin-top: 1.5mm;
         text-align: center;
-        padding-left: 12mm;
-        padding-right: 23mm;
+        padding-left: 11mm;
+        padding-right: 24mm;
     }}
     /* ── อื่นๆ ── */
-    .stamp  {{ font-size: 9pt; color: #666; margin-top: 6mm; }}
+    .stamp  {{ color: #555; }}
     .clearfix {{ clear: both; }}
     """
 
@@ -310,35 +399,62 @@ def resolve_template(entity_key):
 
 
 def merge_on_template(content_bytes, entity_key=''):
-    """overlay content PDF บน entity template
-    
+    """ซ้อนเนื้อหา "ทุกหน้า" บนหัวกระดาษของบริษัท (logo + watermark + แถบที่อยู่)
+
     Args:
         content_bytes: PDF bytes ที่ WeasyPrint สร้าง (เนื้อหาหนังสือ)
         entity_key: sheet name หรือ entity key (เช่น 'SCM Tech', 'SCM C')
-    
+
     Returns:
-        PDF bytes ที่ merge แล้ว (template + content overlay)
-    
-    Fallback: ถ้า template ไม่พบ → ใช้ bg_template.pdf เดิม
+        PDF bytes ที่ merge แล้ว — จำนวนหน้าเท่ากับเนื้อหา
+
+    เดิมซ้อนเฉพาะหน้าแรกของเนื้อหา: หนังสือที่ยาวเกิน 1 หน้าจึงถูกตัดส่วนที่เหลือ (รวมลายเซ็น) ทิ้ง
+
+    ชื่อฟอนต์ THSarabunNew ของ "เนื้อหา" ถูกเปลี่ยนเป็น THSarabunNewCTN ก่อนซ้อน — template ฝังฟอนต์ชื่อเดียวกัน
+    แบบ subset ถ้าชื่อชนกันตัวอักษรอาจเพี้ยน
+
+    Fallback: ถ้า template ไม่พบ → ใช้ bg_template.pdf เดิม ; ไม่มีเลย → คืนเนื้อหาเดิม
     """
+    from pypdf.generic import NameObject
+
     base     = os.path.dirname(os.path.abspath(__file__))
     tpl_name = resolve_template(entity_key)
     tpl_path = os.path.join(base, tpl_name)
-    
+
     # fallback ถ้าไฟล์ไม่พบ
     if not os.path.exists(tpl_path):
-        logger.warning(f'Template ไม่พบ: {tpl_name} — ใช้ {_DEFAULT_TEMPLATE} แทน')
+        logger.warning(f'Template ไม่พบ: {tpl_path} → ใช้ default')
         tpl_path = os.path.join(base, _DEFAULT_TEMPLATE)
-    
+
     if not os.path.exists(tpl_path):
         logger.error(f'Default template ไม่พบ: {tpl_path}')
         return content_bytes  # คืน content เดิมไม่มี template
-    
-    reader = PdfReader(tpl_path)
-    page   = reader.pages[0]
-    page.merge_page(PdfReader(BytesIO(content_bytes)).pages[0])
+
+    def rename(obj, key):
+        val = str(obj.get(key, ''))
+        if 'THSarabunNew' in val and 'CTN' not in val:
+            obj[NameObject(key)] = NameObject('/' + val.replace('THSarabunNew', 'THSarabunNewCTN').lstrip('/'))
+
     writer = PdfWriter()
-    writer.add_page(page)
+    for page in PdfReader(BytesIO(content_bytes)).pages:
+        bg = PdfReader(tpl_path).pages[0]
+        content_fonts = page.get('/Resources', {}).get('/Font', {})
+        for key in list(content_fonts.keys()):
+            try:
+                font_obj = content_fonts[key].get_object()
+                rename(font_obj, '/BaseFont')
+                for desc_ref in font_obj.get('/DescendantFonts', []):
+                    desc = desc_ref.get_object()
+                    rename(desc, '/BaseFont')
+                    if '/FontDescriptor' in desc:
+                        rename(desc['/FontDescriptor'].get_object(), '/FontName')
+                if '/FontDescriptor' in font_obj:
+                    rename(font_obj['/FontDescriptor'].get_object(), '/FontName')
+            except Exception:
+                pass
+        bg.merge_page(page)
+        writer.add_page(bg)
+
     out = BytesIO()
     writer.write(out)
     return out.getvalue()

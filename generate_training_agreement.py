@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v9-layout
+# VERSION: v10-sarabun14
 """
 generate_training_agreement.py — สัญญาเข้าศึกษา / ฝึกอบรม / สอบ
 ═══════════════════════════════════════════════════════════════════
+
+★ v10 (2026-10): TH Sarabun New 14 (ขนาดแบบ Word) + ไม่มีเส้นกรอบ — กำหนดที่ hr_doc_layout / template_utils
 
 ★ v9 (2026-10): จัดหน้าใหม่ด้วย hr_doc_layout
   - ข้อความไม่ชิดเส้นกรอบ (เดิมระยะขอบในกรอบถูกกฎ CSS อื่นทับเป็น 0)
@@ -23,10 +25,6 @@ from hr_doc_layout import (
 )
 
 logger = logging.getLogger(__name__)
-
-# ขนาดตัวอักษรเนื้อหา (pt) — สัญญา 9 ข้อ + ช่องลงนาม ต้องลงใน 2 หน้า
-_BASE_PT = 10
-
 
 def _fmt_money(v):
     """
@@ -113,7 +111,7 @@ def _build_training_html(data):
 ])}
 </div>
 """
-    return document('สัญญาเข้าศึกษา / ฝึกอบรม / สอบ', body, g('docNumber'), _BASE_PT, compact=True)
+    return document('สัญญาเข้าศึกษา / ฝึกอบรม / สอบ', body, g('docNumber'), compact=True)
 
 
 # เดิมฟังก์ชันซ้อนหัวกระดาษเขียนซ้ำอยู่ในไฟล์นี้และไฟล์หนังสือตักเตือน — ย้ายไป hr_doc_layout

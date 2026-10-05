@@ -21,9 +21,11 @@ OS4 PDF API Server — deploy บน Render / Railway
   4. [BG-#NEW] เพิ่ม "ส่วนที่ 4 — รายละเอียดสำหรับการขอคืนหลักประกัน"
      ใต้ส่วนที่ 3 (ช่องว่าง 3 บรรทัดเส้นประให้เขียน)
   5. [BG-L2] แก้ชื่อบริษัท default "บจก." → "บริษัท...จำกัด" เต็ม
-  6. [BG-L2] Smart word-boundary wrap (helper: _bg_smart_wrap)
-     - ตัดที่ space/คำ แทนตัวอักษรกลางคำ
-     - ใช้ใน ตาราง (page 1) + _bg_field() (page 2)
+  6. [BG-L2] Smart word-boundary wrap — ตัดที่ space/คำ แทนตัวอักษรกลางคำ
+     (ปัจจุบันใช้ template_utils.wrap_text)
+
+★ v8 — TH Sarabun New 14 แบบ Word ทั้งฟอร์ม BG Delivery (2026-10)
+  ขนาดตัวอักษรกำหนดผ่าน template_utils.th_pt ; ฟอร์ม อ.ส.4 คงขนาดเดิม (ช่องของแบบฟอร์มกรมสรรพากรตายตัว)
 
 Endpoints:
   POST /generate               → อ.ส.4 stamp duty
@@ -461,6 +463,12 @@ _GRAY   = _HC('#555555'); _LGRAY  = _HC('#999999'); _BORDER = _HC('#bbbbbb')
 _FIELD_BG = _HC('#f7f9fc'); _FIELD_BD = _HC('#d0d5dd')
 _W = white; _B = black; _TF = THAI_FONT
 
+# ขนาดตัวอักษรของ BG Delivery Form — TH Sarabun New 14 แบบ Word ทั้งฟอร์ม
+# (th_pt แปลงเป็น pt ของไฟล์ฟอนต์นี้ ดู template_utils ; เดิมใช้ 6–10 = 9–15 ใน Word)
+from template_utils import th_pt as _th_pt, wrap_text as _wrap_text
+_S14 = _th_pt(14)
+_S16 = _th_pt(16)
+
 
 # [BG-v7] Money formatter — "62,500.00 บาท"
 def _bg_fmt_money(v):
@@ -484,67 +492,6 @@ def _bg_fmt_money(v):
         return str(v)
 
 
-# [BG-v7-L2] Smart word-boundary wrapper — ตัดที่ space แทนตัวอักษรกลางคำ
-def _bg_smart_wrap(c, text, fo, sz, max_w, max_lines=4):
-    """
-    [v7-L2] Wrap ข้อความเป็นหลายบรรทัด โดย prefer ตัดที่ space/คำ
-    
-    Algorithm:
-      1. ถ้า fit ใน 1 บรรทัด → คืนทันที
-      2. หา substring ยาวสุดที่ fit (ตาม pixel width)
-      3. [SMART] ถอยหา space ย้อนกลับ — ถ้าเจอ space ในครึ่งหลัง
-         → ตัดที่ space (ไม่ตัดกลางคำ)
-      4. Fallback: ตัดที่ตัวอักษรถ้าไม่มี space (Thai text ล้วน)
-      5. บรรทัดสุดท้ายใส่ '…' ถ้ายังเหลือ
-    
-    Args:
-      c:        canvas (ใช้ stringWidth)
-      text:     input string
-      fo:       font name
-      sz:       font size
-      max_w:    max width per line
-      max_lines: ไม่เกินกี่บรรทัด
-    
-    Returns:
-      list[str] ของแต่ละบรรทัด
-    """
-    if not text:
-        return ['']
-    t = str(text).strip()
-    if c.stringWidth(t, fo, sz) <= max_w:
-        return [t]
-    
-    lines = []
-    rem = t
-    while rem and len(lines) < max_lines:
-        # หา substring ยาวสุดที่ fit
-        fit = rem
-        while len(fit) > 1 and c.stringWidth(fit, fo, sz) > max_w:
-            fit = fit[:-1]
-        
-        # ถ้ายังเหลือตัวต่อ → ลองหา space ย้อนกลับ (smart boundary)
-        if len(fit) < len(rem):
-            # หา space/whitespace ใน fit (ถอยกลับ)
-            sp = max(fit.rfind(' '), fit.rfind('\t'), fit.rfind('\n'))
-            # ตัดที่ space ถ้า space อยู่หลังครึ่งแรกของบรรทัด (ไม่ให้บรรทัดสั้นเกิน)
-            if sp > len(fit) * 0.5:
-                fit = fit[:sp]
-        
-        # บรรทัดสุดท้าย — ถ้ายังเหลือ → ใส่ '…'
-        if len(lines) == max_lines - 1 and len(fit) < len(rem):
-            trail = fit
-            while len(trail) > 1 and c.stringWidth(trail + '…', fo, sz) > max_w:
-                trail = trail[:-1]
-            lines.append(trail + '…')
-            break
-        
-        lines.append(fit)
-        # ตัดแล้ว strip space ที่ต้น (ถ้าเกิด ตัดที่ space)
-        rem = rem[len(fit):].lstrip()
-    
-    return lines if lines else ['']
-
-
 def _draw_checkmark_bg(c, x, y, sz, color):
     c.setStrokeColor(color)
     c.setLineWidth(1.2)
@@ -556,13 +503,13 @@ def _draw_checkmark_bg(c, x, y, sz, color):
     c.setLineWidth(1.0)
 
 
-def _bg_chk(c, x, y, on, sz=9):
+def _bg_chk(c, x, y, on, sz=10):
     c.setLineWidth(1)
     if on:
         c.setStrokeColor(_BLUE)
         c.setFillColor(_HC('#e0e8f8'))
         c.rect(x, y, sz, sz, fill=1, stroke=1)
-        _draw_checkmark_bg(c, x, y, sz, _W)
+        _draw_checkmark_bg(c, x, y, sz, _BLUE)   # เดิมวาดสีขาวบนพื้นฟ้าอ่อน — แทบมองไม่เห็นว่าเลือกช่องไหน
     else:
         c.setStrokeColor(_BORDER)
         c.setFillColor(_W)
@@ -570,7 +517,8 @@ def _bg_chk(c, x, y, on, sz=9):
     c.setFillColor(_B)
 
 
-def _bg_field(c, x, y, w, h, text='', fs=8):
+def _bg_field(c, x, y, w, h, text='', fs=None):
+    fs = _S14 if fs is None else fs
     c.setStrokeColor(_FIELD_BD)
     c.setFillColor(_FIELD_BG)
     c.setLineWidth(0.5)
@@ -594,14 +542,16 @@ def _bg_field(c, x, y, w, h, text='', fs=8):
     c.setFillColor(_B)
 
 
-def _bg_label(c, x, y, text, fs=7.5):
+def _bg_label(c, x, y, text, fs=None):
+    fs = _S14 if fs is None else fs
     c.setFont(_TF, fs)
     c.setFillColor(_GRAY)
     c.drawString(x, y, text)
     c.setFillColor(_B)
 
 
-def _bg_section(c, x, y, w, text, fs=10):
+def _bg_section(c, x, y, w, text, fs=None):
+    fs = _S14 if fs is None else fs
     c.setStrokeColor(_BLUE)
     c.setLineWidth(2)
     c.line(x, y + 2, x, y - 12)
@@ -615,22 +565,22 @@ def _bg_section(c, x, y, w, text, fs=10):
     return y - 22
 
 
-def _bg_sign(c, x, y, title, w=155, h=55):
+def _bg_sign(c, x, y, title, w=170, h=68):
+    """กล่องลงนาม: หัวข้อ / เส้นลงนาม / (ชื่อ) / วันที่"""
     c.setStrokeColor(_HC('#c0c8d8'))
     c.setLineWidth(0.8)
     c.setDash(4, 3)
     c.roundRect(x, y, w, h, 4)
     c.setDash()
-    c.setFont(_TF, 7.5)
+    c.setFont(_TF, _S14)
     c.setFillColor(_GRAY)
-    c.drawCentredString(x + w / 2, y + h - 12, title)
+    c.drawCentredString(x + w / 2, y + h - 13, title)
     c.setStrokeColor(_HC('#b0b8c8'))
     c.setLineWidth(0.5)
-    c.line(x + 15, y + h / 2 - 2, x + w - 15, y + h / 2 - 2)
-    c.setFont(_TF, 6.5)
+    c.line(x + 15, y + h - 36, x + w - 15, y + h - 36)
     c.setFillColor(_LGRAY)
-    c.drawCentredString(x + w / 2, y + h / 2 - 14, '(                                               )')
-    c.drawCentredString(x + w / 2, y + h / 2 - 24, 'วันที่ ........./................/...........')
+    c.drawCentredString(x + w / 2, y + h - 49, '(                                               )')
+    c.drawCentredString(x + w / 2, y + h - 62, 'วันที่ ........./................/...........')
     c.setFillColor(_B)
 
 
@@ -669,43 +619,43 @@ def _create_bg_delivery_pdf(d):
     pw, ph = LW, LH
     mx = 35; mr = pw - 35
 
-    c.setFont(_TF, 16); c.setFillColor(_BLUE)
+    c.setFont(THAI_FONT_BOLD, _S16); c.setFillColor(_BLUE)
     c.drawCentredString(pw / 2, ph - 38, 'แบบฟอร์มนำส่งหนังสือค้ำประกัน')
-    c.setFont(_TF, 9); c.setFillColor(_LGRAY)
+    c.setFont(_TF, _S14); c.setFillColor(_LGRAY)
     c.drawCentredString(pw / 2, ph - 52, 'กรมธรรม์ประกันภัย / Bank Guarantee Delivery Form')
     c.setStrokeColor(_BLUE); c.setLineWidth(1.5)
-    c.line(pw / 2 - 140, ph - 58, pw / 2 + 140, ph - 58)
+    c.line(pw / 2 - 140, ph - 59, pw / 2 + 140, ph - 59)
 
     y = _bg_section(c, mx, ph - 72, mr - mx, 'ส่วนที่ 1 — ผู้นำส่งเอกสาร / ผู้รับเอกสาร')
-    half = (mr - mx) / 2 - 10; lx = mx; rx = mx + half + 20; rh = 15; g = 5; lw = 32
+    half = (mr - mx) / 2 - 10; lx = mx; rx = mx + half + 20; rh = 17; g = 5; lw = 36
 
-    c.setFont(_TF, 8)
-    c.setFillColor(_TEAL);  c.drawString(lx + 5, y, '▸  ผู้นำส่งเอกสาร')
-    c.setFillColor(_BLUE);  c.drawString(rx + 5, y, '▸  ผู้รับเอกสาร')
+    y -= 5
+    c.setFont(_TF, _S14)
+    c.setFillColor(_TEAL);  c.drawString(lx + 5, y, 'ผู้นำส่งเอกสาร')
+    c.setFillColor(_BLUE);  c.drawString(rx + 5, y, 'ผู้รับเอกสาร')
 
     for i, (lb, vl, vr) in enumerate([('ชื่อ', sn, rn), ('บริษัท', sc, rc), ('โทร', sp, rp)]):
-        fy = y - 16 - i * (rh + g)
-        _bg_label(c, lx + 5, fy + 3, lb)
-        _bg_field(c, lx + lw + 10, fy, half - lw - 15, rh, vl, 7.5)
-        _bg_label(c, rx + 5, fy + 3, lb)
-        _bg_field(c, rx + lw + 10, fy, half - lw - 15, rh, vr, 7.5)
+        fy = y - 22 - i * (rh + g)
+        _bg_label(c, lx + 5, fy + 4, lb)
+        _bg_field(c, lx + lw + 10, fy, half - lw - 15, rh, vl)
+        _bg_label(c, rx + 5, fy + 4, lb)
+        _bg_field(c, rx + lw + 10, fy, half - lw - 15, rh, vr)
 
-    ty = y - 16 - 3 * (rh + g) - 6
+    ty = y - 22 - 2 * (rh + g) - 12
     ty = _bg_section(c, mx, ty, mr - mx, 'ส่วนที่ 2 — ข้อมูลจัดเก็บเอกสาร')
 
-    # [BG-v7 #2] ขยาย column ชื่อสัญญา+คู่สัญญา, ลบ Project Owner
-    # เดิม (11 cols): [22, 68, 148, 58, 62, 52, 68, 56, 125, 58, 56]  = 771pt
-    # ใหม่ (10 cols): [24, 72, 175, 60, 64, 54, 72, 58, 145, 58]      = 782pt → fit in landscape
+    # ความกว้างคอลัมน์รวม = ความกว้างเนื้อหา (772pt) พอดี — เดิมรวม 782pt ตารางล้นขอบขวา 10pt
     hds = ['#', 'เลขที่สัญญา', 'ชื่อสัญญา', 'ประเภทเอกสาร', 'เลขที่เอกสาร',
            'ลงวันที่', 'จำนวนเงิน (บาท)', 'วันครบกำหนด', 'คู่สัญญา', 'เลขที่ PO']
-    cw_tbl = [24, 72, 175, 60, 64, 54, 72, 58, 145, 58]
-    tw  = sum(cw_tbl); tx_tbl = mx; thh = 16; tdh = 40
+    cw_tbl = [22, 68, 154, 76, 74, 56, 84, 64, 102, 72]
+    tw  = sum(cw_tbl); tx_tbl = mx; thh = 20; lh_tbl = 14; max_ln = 4
+    tdh = max_ln * lh_tbl + 8
 
     c.setFillColor(_BLUE); c.rect(tx_tbl, ty - thh, tw, thh, fill=1)
-    c.setFillColor(_W); c.setFont(_TF, 6)
+    c.setFillColor(_W); c.setFont(_TF, _S14)
     cx_ = tx_tbl
     for i, ht in enumerate(hds):
-        c.drawCentredString(cx_ + cw_tbl[i] / 2, ty - thh + 4, ht)
+        c.drawCentredString(cx_ + cw_tbl[i] / 2, ty - thh + 6, ht)
         cx_ += cw_tbl[i]
 
     c.setStrokeColor(_BORDER); c.setLineWidth(0.4); c.setFillColor(_W)
@@ -716,37 +666,34 @@ def _create_bg_delivery_pdf(d):
 
     # [BG-v7 #1] bgv = formatted money แล้ว | ลบ own (Project Owner) ออก
     vs = ['1', cno, cnm, dt, bgn, isd, bgv, bge, cpy, po]
-    c.setFont(_TF, 7); c.setFillColor(_B)
+    c.setFont(_TF, _S14); c.setFillColor(_B)
     cx_ = tx_tbl
     for i, v in enumerate(vs):
-        # [BG-v7-L2] Smart wrap — ตัดที่ space แทนตัวอักษรกลางคำ
-        cwd = cw_tbl[i] - 4
-        ls = _bg_smart_wrap(c, str(v or ''), _TF, 7, cwd, max_lines=4)
+        # ตัดบรรทัดที่ช่องว่างก่อน และไม่แยกสระ/วรรณยุกต์ออกจากพยัญชนะ
+        ls = _wrap_text(lambda t: c.stringWidth(t, _TF, _S14), str(v or ''), cw_tbl[i] - 6, max_ln)
         for li, ln in enumerate(ls):
-            c.drawString(cx_ + 2, ty - thh - 10 - li * 8, ln)
+            c.drawString(cx_ + 3, ty - thh - 13 - li * lh_tbl, ln)
         cx_ += cw_tbl[i]
 
-    sy = ty - thh - tdh - 6
+    sy = ty - thh - tdh - 10
     sy = _bg_section(c, mx, sy, mr - mx, 'ส่วนที่ 3 — สำหรับเจ้าหน้าที่รับเอกสาร')
-    _bg_label(c, mx + 10, sy, 'ข้าพเจ้าตรวจสอบรายละเอียดแล้ว ถูกต้องครบถ้วน', 8)
-    sx = pw / 2 - 175
-    _bg_sign(c, sx, sy - 68, 'ลงนามผู้นำส่ง')
-    _bg_sign(c, sx + 190, sy - 68, 'ลงนามผู้รับเอกสาร')
+    sy -= 5
+    _bg_label(c, mx + 10, sy, 'ข้าพเจ้าตรวจสอบรายละเอียดแล้ว ถูกต้องครบถ้วน')
+    sx = pw / 2 - 190
+    _bg_sign(c, sx, sy - 80, 'ลงนามผู้นำส่ง')
+    _bg_sign(c, sx + 210, sy - 80, 'ลงนามผู้รับเอกสาร')
 
     # ═══════════════════════════════════════════════════════
     # [BG-v7] ส่วนที่ 4 — รายละเอียดสำหรับการขอคืนหลักประกัน
     # ═══════════════════════════════════════════════════════
-    # ตำแหน่ง: ใต้ส่วนที่ 3 (ใต้ลายเซ็นผู้นำส่ง/ผู้รับ)
-    # ขนาด: 2-3 บรรทัด (ช่องว่างให้เขียนด้วยมือ)
-    # Label: หัวข้อส่วน เท่านั้น (ไม่มี sub-label)
-    s4y = sy - 68 - 55 - 8   # sign box bottom = sy - 68 - 55 ; padding 8
+    # ตำแหน่ง: ใต้ส่วนที่ 3 (ใต้กล่องลงนาม) ; เส้นประ 3 บรรทัดให้เขียนด้วยมือ
+    s4y = sy - 80 - 12
     s4y = _bg_section(c, mx, s4y, mr - mx, 'ส่วนที่ 4 — รายละเอียดสำหรับการขอคืนหลักประกัน')
-    # วาด 3 เส้นประสำหรับให้เขียน (เต็มความกว้าง mr-mx ลบ padding ซ้าย 10)
     _line_w  = mr - mx - 20          # เว้น padding 10 ซ้าย + 10 ขวา
     _line_x1 = mx + 10
     _line_x2 = _line_x1 + _line_w
     for _i in range(3):
-        _ly = s4y - _i * 14          # line spacing 14pt
+        _ly = s4y - 4 - _i * 18      # line spacing 18pt
         c.setStrokeColor(_HC('#aaaaaa'))
         c.setLineWidth(0.5)
         c.setDash(1, 2)              # dotted line
@@ -758,118 +705,115 @@ def _create_bg_delivery_pdf(d):
     # ════ หน้า 2 PORTRAIT ════
     from reportlab.lib.pagesizes import A4
     c.setPageSize(A4)
-    pw2, ph2 = A4W, A4H; m2 = 35; fw = pw2 - 70; bw = 155
-    sh = 280; st = ph2 - 25; sb = st - sh; rg = 15; rh2 = 255; rt = sb - rg; rb = rt - rh2
+    pw2, ph2 = A4W, A4H; m2 = 35; fw = pw2 - 70; bw = 170
+    RH = 20                       # ระยะระหว่างแถว
+    FH = 17                       # ความสูงช่องกรอก
+    sh = 336; st = ph2 - 25; sb = st - sh; rg = 18; rh2 = 306; rt = sb - rg; rb = rt - rh2
+    sw_ = lambda t: c.stringWidth(t, _TF, _S14)
 
-    c.setStrokeColor(_TEAL);  c.setLineWidth(2); c.rect(m2, sb, fw, sh)
-    c.setFillColor(_TEAL); c.rect(pw2 / 2 - bw / 2, st - 8, bw, 16, fill=1)
-    c.setFillColor(_W); c.setFont(_TF, 10); c.drawCentredString(pw2 / 2, st - 5, 'แบบส่งหลักประกัน')
+    def fit(text, max_w):
+        """ข้อความบรรทัดเดียว — ยาวเกินใส่ … (ไม่ล้นกรอบ)"""
+        return _wrap_text(sw_, text, max_w, 1)[0]
+
+    def chk_text(x, y, on, text):
+        _bg_chk(c, x, y, on)
+        c.setFont(_TF, _S14); c.setFillColor(_B)
+        c.drawString(x + 14, y + 1.5, text)
+
+    def labelled(x, y, label, w, text, gap=6):
+        """ป้าย + ช่องกรอก — ช่องเริ่มหลังป้ายพอดี ; คืนตำแหน่ง x ท้ายช่อง"""
+        _bg_label(c, x, y + 4, label)
+        fx = x + sw_(label) + gap
+        _bg_field(c, fx, y, w - (fx - x), FH, text)
+        return x + w
+
+    def payment_rows(y):
+        chk_text(m2 + 10,  y, ptype == 'cash',   'เงินสด')
+        chk_text(m2 + 80,  y, ptype == 'bond',   'พันธบัตรรัฐบาลไทย')
+        chk_text(m2 + 215, y, ptype == 'cheque', 'แคชเชียร์เช็ค')
+        y -= 17
+        chk_text(m2 + 10,  y, ptype == 'bank_lg', 'หนังสือค้ำประกันของธนาคารภายในประเทศ')
+        chk_text(m2 + 270, y, ptype == 'car_insurance', 'กรมธรรม์ประกันภัย CAR & PL')
+        return y
+
+    # ── แบบส่งหลักประกัน ──
+    c.setStrokeColor(_TEAL);  c.setLineWidth(1.2); c.rect(m2, sb, fw, sh)
+    c.setFillColor(_TEAL); c.rect(pw2 / 2 - bw / 2, st - 9, bw, 18, fill=1)
+    c.setFillColor(_W); c.setFont(_TF, _S14); c.drawCentredString(pw2 / 2, st - 3.5, 'แบบส่งหลักประกัน')
     c.setFillColor(_B)
 
-    cy = st - 28
-    _bg_label(c, m2 + 10, cy, 'วันที่')
-    _bg_field(c, m2 + 42, cy - 3, 30, 14, td, 9)
-    _bg_label(c, m2 + 80, cy, 'เดือน')
-    _bg_field(c, m2 + 110, cy - 3, 65, 14, tm, 9)
-    _bg_label(c, m2 + 183, cy, 'พ.ศ.')
-    _bg_field(c, m2 + 205, cy - 3, 42, 14, tyr, 9)
+    cy = st - 32
+    x_ = labelled(m2 + 10, cy - 4, 'วันที่', 62, td)
+    x_ = labelled(x_ + 10, cy - 4, 'เดือน', 110, tm)
+    labelled(x_ + 10, cy - 4, 'พ.ศ.', 76, tyr)
 
-    cy -= 20
-    st_ = sc or cpy
-    c.setFont(_TF, 9); c.setFillColor(_B); c.drawString(m2 + 10, cy, st_)
-    c.setFillColor(_TEAL); c.drawString(m2 + 10 + c.stringWidth(st_, _TF, 9) + 5, cy, 'ได้ส่ง')
+    cy -= RH + 2
+    st_ = fit(sc or cpy, fw - 60)
+    c.setFont(_TF, _S14); c.setFillColor(_B); c.drawString(m2 + 10, cy, st_)
+    c.setFillColor(_TEAL); c.drawString(m2 + 10 + sw_(st_) + 5, cy, 'ได้ส่ง')
 
-    cy -= 18
-    _bg_chk(c, m2 + 10, cy, ib)
-    c.setFont(_TF, 8); c.setFillColor(_B)
-    c.drawString(m2 + 22, cy + 1, 'หลักประกันซอง')
-    _bg_chk(c, m2 + 110, cy, ic); c.drawString(m2 + 122, cy + 1, 'หลักประกันสัญญา')
-    _bg_chk(c, m2 + 230, cy, ii); c.drawString(m2 + 242, cy + 1, 'เอกสารประกันภัย')
-    # [BG-v7 #4] แบบส่ง: "ของ [counterparty]" — ไม่ใช่ chd (SCM) อีกต่อไป
-    # Logic: SCM ส่งหลักประกันของคู่สัญญา
-    c.setFont(_TF, 7.5); c.drawString(m2 + 325, cy + 1, 'ของ ' + (cpy or chd))
+    cy -= RH
+    chk_text(m2 + 10,  cy, ib, 'หลักประกันซอง')
+    chk_text(m2 + 120, cy, ic, 'หลักประกันสัญญา')
+    chk_text(m2 + 245, cy, ii, 'เอกสารประกันภัย')
 
-    cy -= 20
-    _bg_label(c, m2 + 10, cy + 3, 'สำหรับโครงการ')
-    _bg_field(c, m2 + 85, cy - 1, 225, 15, cnm, 7)
-    _bg_label(c, m2 + 318, cy + 3, 'เลขที่สัญญา')
-    _bg_field(c, m2 + 385, cy - 1, fw - 395, 15, cno, 7)
+    # [BG-v7 #4] แบบส่ง: "ของ [counterparty]" — แยกเป็นแถวของตัวเอง (เดิมต่อท้ายตัวเลือก ชื่อยาวล้นกรอบ)
+    cy -= RH
+    labelled(m2 + 10, cy - 4, 'ของ', fw - 20, cpy or chd)
 
-    cy -= 18
-    _bg_chk(c, m2 + 10, cy, ptype == 'cash')
-    c.setFont(_TF, 8); c.setFillColor(_B)
-    c.drawString(m2 + 22, cy + 1, 'เงินสด')
-    _bg_chk(c, m2 + 80, cy, ptype == 'bond'); c.drawString(m2 + 92, cy + 1, 'พันธบัตรรัฐบาลไทย')
-    _bg_chk(c, m2 + 210, cy, ptype == 'cheque'); c.drawString(m2 + 222, cy + 1, 'แคชเชียร์เช็ค')
+    cy -= RH + 2
+    labelled(m2 + 10, cy - 4, 'สำหรับโครงการ', fw - 20, cnm)
 
-    cy -= 15
-    _bg_chk(c, m2 + 10, cy, ptype == 'bank_lg'); c.setFillColor(_B)
-    c.drawString(m2 + 22, cy + 1, 'หนังสือค้ำประกันของธนาคารภายในประเทศ')
-    _bg_chk(c, m2 + 270, cy, ptype == 'car_insurance')
-    c.drawString(m2 + 282, cy + 1, 'กรมธรรม์ประกันภัย CAR & PL')
+    cy -= RH + 2
+    labelled(m2 + 10, cy - 4, 'เลขที่สัญญา', 260, cno)
 
-    cy -= 18
-    _bg_label(c, m2 + 10, cy + 3, 'ชื่อธนาคาร/บริษัท')
-    _bg_field(c, m2 + 98, cy - 1, 185, 15, bnk, 8)
-    _bg_label(c, m2 + 292, cy + 3, 'สาขา')
-    _bg_field(c, m2 + 318, cy - 1, fw - 328, 15, bbr, 7)
+    cy -= RH + 2
+    cy = payment_rows(cy)
 
-    cy -= 18
-    _bg_label(c, m2 + 10, cy + 3, 'เลขที่')
-    _bg_field(c, m2 + 42, cy - 1, 135, 15, bgn, 8)
-    _bg_label(c, m2 + 186, cy + 3, 'จำนวน')
+    cy -= RH + 2
+    x_ = labelled(m2 + 10, cy - 4, 'ชื่อธนาคาร/บริษัท', 275, bnk)
+    labelled(x_ + 10, cy - 4, 'สาขา', fw - 20 - 275 - 10, bbr)
+
+    cy -= RH + 2
+    x_ = labelled(m2 + 10, cy - 4, 'เลขที่', 175, bgn)
     # [BG-v7 #5] แบบส่ง — bgv = formatted money "62,500.00 บาท" แล้ว
-    _bg_field(c, m2 + 218, cy - 1, 150, 15, bgv, 8)
-    c.setFont(_TF, 6); c.setFillColor(_LGRAY)
-    c.drawString(m2 + 378, cy + 3, 'ครบถ้วนถูกต้องเรียบร้อย')
-    _bg_sign(c, pw2 / 2 - 78, cy - 62, 'ลงชื่อผู้ส่งหลักประกัน', 155, 50)
+    x_ = labelled(x_ + 10, cy - 4, 'จำนวน', 185, bgv)
+    c.setFont(_TF, _S14); c.setFillColor(_LGRAY)
+    c.drawString(x_ + 10, cy, 'ครบถ้วนถูกต้องเรียบร้อย')
+    _bg_sign(c, pw2 / 2 - 85, cy - 86, 'ลงชื่อผู้ส่งหลักประกัน')
 
-    c.setStrokeColor(_PURPLE); c.setLineWidth(2); c.rect(m2, rb, fw, rh2)
-    c.setFillColor(_PURPLE); c.rect(pw2 / 2 - bw / 2, rt - 8, bw, 16, fill=1)
-    c.setFillColor(_W); c.setFont(_TF, 10); c.drawCentredString(pw2 / 2, rt - 5, 'แบบคืนหลักประกัน')
+    # ── แบบคืนหลักประกัน ──
+    c.setStrokeColor(_PURPLE); c.setLineWidth(1.2); c.rect(m2, rb, fw, rh2)
+    c.setFillColor(_PURPLE); c.rect(pw2 / 2 - bw / 2, rt - 9, bw, 18, fill=1)
+    c.setFillColor(_W); c.setFont(_TF, _S14); c.drawCentredString(pw2 / 2, rt - 3.5, 'แบบคืนหลักประกัน')
     c.setFillColor(_B)
 
-    cy2 = rt - 28
-    c.setFont(_TF, 9); c.drawString(m2 + 10, cy2, chd)
-    c.setFillColor(_PURPLE); c.drawString(m2 + 10 + c.stringWidth(chd, _TF, 9) + 5, cy2, 'ได้คืน')
+    cy2 = rt - 30
+    chd_ = fit(chd, fw - 60)
+    c.setFont(_TF, _S14); c.drawString(m2 + 10, cy2, chd_)
+    c.setFillColor(_PURPLE); c.drawString(m2 + 10 + sw_(chd_) + 5, cy2, 'ได้คืน')
 
-    cy2 -= 18
+    cy2 -= RH
     for lb, cv2 in [('หลักประกันซอง', ib), ('หลักประกันสัญญา', ic), ('เอกสารประกันภัย', ii)]:
-        _bg_chk(c, m2 + 10, cy2, cv2)
-        c.setFont(_TF, 8); c.setFillColor(_B)
-        c.drawString(m2 + 22, cy2 + 1, lb + '  ของ  ' + cpy)
-        cy2 -= 15
+        chk_text(m2 + 10, cy2, cv2, fit(lb + '  ของ  ' + cpy, fw - 34))
+        cy2 -= 17
 
-    cy2 -= 4
-    _bg_chk(c, m2 + 10, cy2, ptype == 'cash')
-    c.setFont(_TF, 8); c.setFillColor(_B)
-    c.drawString(m2 + 22, cy2 + 1, 'เงินสด')
-    _bg_chk(c, m2 + 80, cy2, ptype == 'bond'); c.drawString(m2 + 92, cy2 + 1, 'พันธบัตรรัฐบาลไทย')
-    _bg_chk(c, m2 + 210, cy2, ptype == 'cheque'); c.drawString(m2 + 222, cy2 + 1, 'แคชเชียร์เช็ค')
+    cy2 -= 5
+    cy2 = payment_rows(cy2)
 
-    cy2 -= 15
-    _bg_chk(c, m2 + 10, cy2, ptype == 'bank_lg'); c.setFillColor(_B)
-    c.drawString(m2 + 22, cy2 + 1, 'หนังสือค้ำประกันของธนาคารภายในประเทศ')
-    _bg_chk(c, m2 + 270, cy2, ptype == 'car_insurance')
-    c.drawString(m2 + 282, cy2 + 1, 'กรมธรรม์ประกันภัย CAR & PL')
+    cy2 -= RH + 2
+    labelled(m2 + 10, cy2 - 4, 'ชื่อธนาคาร/บริษัท', fw - 20, bnk)
 
-    cy2 -= 18
-    _bg_label(c, m2 + 10, cy2 + 3, 'ชื่อธนาคาร/บริษัท')
-    _bg_field(c, m2 + 98, cy2 - 1, fw - 108, 15, bnk, 8)
+    cy2 -= RH + 2
+    labelled(m2 + 10, cy2 - 4, 'สาขา', fw - 20, bbr)
 
-    cy2 -= 17
-    _bg_label(c, m2 + 10, cy2 + 3, 'สาขา')
-    _bg_field(c, m2 + 42, cy2 - 1, fw - 52, 15, bbr, 8)
-
-    cy2 -= 17
-    _bg_label(c, m2 + 10, cy2 + 3, 'เลขที่')
-    _bg_field(c, m2 + 42, cy2 - 1, 135, 15, bgn, 8)
-    _bg_label(c, m2 + 186, cy2 + 3, 'จำนวน')
+    cy2 -= RH + 2
+    x_ = labelled(m2 + 10, cy2 - 4, 'เลขที่', 175, bgn)
     # [BG-v7 #6] แบบคืน — bgv = formatted money "62,500.00 บาท" แล้ว
-    _bg_field(c, m2 + 218, cy2 - 1, 150, 15, bgv, 8)
-    c.setFont(_TF, 6); c.setFillColor(_LGRAY)
-    c.drawString(m2 + 378, cy2 + 3, 'ครบถ้วน')
-    _bg_sign(c, pw2 / 2 - 78, cy2 - 55, 'ลงชื่อผู้คืนหลักประกัน', 155, 45)
+    x_ = labelled(x_ + 10, cy2 - 4, 'จำนวน', 185, bgv)
+    c.setFont(_TF, _S14); c.setFillColor(_LGRAY)
+    c.drawString(x_ + 10, cy2, 'ครบถ้วน')
+    _bg_sign(c, pw2 / 2 - 85, cy2 - 86, 'ลงชื่อผู้คืนหลักประกัน')
 
     c.save()
     return buf.getvalue()

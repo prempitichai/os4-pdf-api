@@ -25,6 +25,8 @@ from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
+from template_utils import th_pt, wrap_text
+
 logger = logging.getLogger(__name__)
 
 # ── FONT PATH ────────────────────────────────────────────────────────────────
@@ -204,6 +206,14 @@ CRA  = HexColor('#f5f5ff')
 F  = 'THSarabunNew'
 FB = 'THSarabunNew-Bold'
 
+# ── ขนาดตัวอักษร — TH Sarabun New 14 แบบ Word ทั้งฟอร์ม (th_pt แปลงเป็น pt ของไฟล์ฟอนต์นี้ ดู template_utils) ──
+# เดิมแต่ละจุดใช้ 7–14 (= 10.7–21.4 ใน Word)
+S16 = th_pt(16)   # ชื่อบริษัท / ชื่อฟอร์ม / ยอดรวม
+S14 = th_pt(14)   # ข้อความทั้งหมด
+S12 = th_pt(12)   # ที่อยู่บริษัทใต้ชื่อ
+S10 = th_pt(10)   # ท้ายกระดาษ
+LINE = 15         # ระยะบรรทัดของข้อความในตาราง (pt)
+
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 
@@ -240,11 +250,9 @@ def _tbe():
     n = datetime.now()
     return f"{n.day:02d}/{n.month:02d}/{n.year + 543}"
 
-def _tx(c, x, y, t, f=F, s=9, co=CT, a='left'):
-    """
-    วาดข้อความ
-    ★ default size=9 (+2 จาก v3 ที่เป็น 7)
-    """
+def _tx(c, x, y, t, f=F, s=None, co=CT, a='left'):
+    """วาดข้อความ — ขนาดเริ่มต้น = S14 (TH Sarabun New 14 แบบ Word)"""
+    s = S14 if s is None else s
     c.setFont(f, s)
     c.setFillColor(co)
     if a == 'center':
@@ -287,30 +295,18 @@ def _trunc(cv, t, fo, sz, mw):
     return t + '…'
 
 def _wrap(cv, t, fo, sz, mw, ml=2):
-    """
-    แบ่งข้อความเป็นหลายบรรทัด — สูงสุด ml บรรทัด
-    บรรทัดสุดท้ายจะมี '…' ถ้าข้อความยังเหลืออยู่
-    """
-    if not t:
-        return ['']
-    t = str(t)
-    if cv.stringWidth(t, fo, sz) <= mw:
-        return [t]
+    """แบ่งข้อความเป็นหลายบรรทัด — สูงสุด ml บรรทัด (บรรทัดสุดท้ายมี '…' ถ้าข้อความยังเหลือ)
+    ตัดที่ช่องว่างก่อน และไม่แยกสระ/วรรณยุกต์ออกจากพยัญชนะ (template_utils.wrap_text)"""
+    return wrap_text(lambda x: cv.stringWidth(x, fo, sz), t, mw, ml)
 
-    lines = []; rem = t
-    while rem and len(lines) < ml:
-        fit = rem
-        while len(fit) > 1 and cv.stringWidth(fit, fo, sz) > mw:
-            fit = fit[:-1]
-        if len(lines) == ml - 1 and len(fit) < len(rem):
-            while len(fit) > 1 and cv.stringWidth(fit + '…', fo, sz) > mw:
-                fit = fit[:-1]
-            lines.append(fit + '…')
-            break
-        else:
-            lines.append(fit)
-            rem = rem[len(fit):]
-    return lines or ['']
+
+def _tick(cv, x, y, sz, co=CH):
+    """เครื่องหมายถูกในช่องสี่เหลี่ยม (วาดเป็นเส้น — ฟอนต์ไม่มีอักขระ ✓ เดิมจึงพิมพ์ออกมาเป็นกล่องเปล่า)"""
+    cv.setStrokeColor(co); cv.setLineWidth(1.3)
+    cv.line(x + sz * 0.18, y + sz * 0.50, x + sz * 0.40, y + sz * 0.24)
+    cv.line(x + sz * 0.40, y + sz * 0.24, x + sz * 0.84, y + sz * 0.78)
+    cv.setLineWidth(0.5)
+
 
 def _safe_items(data):
     """
@@ -329,192 +325,204 @@ def _safe_items(data):
 # 1. REQUEST APPROVE LG — Landscape A4
 # ════════════════════════════════════════════════════════════
 
+_BOTTOM = MB + 18      # เนื้อหาต้องอยู่เหนือเส้นท้ายกระดาษ
+
+
+def _company_header(cv, data, y, color):
+    """ชื่อบริษัท + ที่อยู่ กลางหน้า — คืน y ใต้บรรทัดสุดท้าย"""
+    pw = L_W
+    _tx(cv, pw/2, y, _co(data, 'companyName'), FB, S16, color, 'center'); y -= 14
+    en = _co(data, 'companyNameEn')
+    if en != '-':
+        _tx(cv, pw/2, y, f"{en} (สำนักงานใหญ่)", F, S12, CM, 'center'); y -= 10
+    adr = _co(data, 'address')
+    if adr != '-':
+        _tx(cv, pw/2, y, adr, F, S12, CL, 'center'); y -= 10
+    inf = (f"โทร. {_co(data, 'phone')}  "
+           f"แฟกซ์: {_co(data, 'fax')}  "
+           f"เลขประจำตัวผู้เสียภาษี: {_co(data, 'taxId')}")
+    _tx(cv, pw/2, y, inf, F, S12, CL, 'center')
+    return y
+
+
 def generate_lg_pdf(data):
     """
     สร้าง PDF ขออนุมัติหนังสือค้ำประกัน (Request Approve LG)
-    รองรับหลายหน้า — auto paginate เมื่อรายการมากกว่า 10 รายการ
+    ขึ้นหน้าใหม่เองเมื่อรายการไม่พอหน้า — ส่วนสรุป/ลงนามอยู่หน้าเดียวกับรายการสุดท้ายเสมอ
     """
     _register_fonts()
+    items = _safe_items(data)
+    # รอบแรกวาดบน canvas ทิ้งเพื่อนับจำนวนหน้า (ใช้พิมพ์ "หน้า x/y")
+    tp = _lg_draw(canvas.Canvas(io.BytesIO(), pagesize=landscape(A4)), data, items, 0)
     buf = io.BytesIO()
     cv  = canvas.Canvas(buf, pagesize=landscape(A4))
+    _lg_draw(cv, data, items, tp)
+    cv.save(); buf.seek(0)
+    return buf.getvalue()
 
-    # ★ แก้ไข #3: ใช้ _safe_items แทน data.get('items') โดยตรง
-    items = _safe_items(data)
+
+def _lg_draw(cv, data, items, tp):
+    """วาดฟอร์ม LG ทั้งฉบับ — คืนจำนวนหน้า (tp = จำนวนหน้าทั้งหมดถ้าทราบแล้ว)"""
+    pw, ph = L_W, L_H
+    tx = ML
+    sw = lambda t, f=F, z=S14: cv.stringWidth(t, f, z)
 
     tot_amt = sum(_pf(it.get('amount')) for it in items)
     tot_fee = sum(_pf(it.get('fee'))    for it in items)
 
-    # Column widths — landscape มีพื้นที่กว้างกว่า portrait มาก
-    col_raw = [22, 62, 65, 200, 40, 58, 58, 30, 80, 80]
+    # Column widths — No. | SR No. | เลขสัญญา | ชื่อโครงการ / คู่สัญญา | สถานะ | เริ่มต้น | สิ้นสุด | เดือน | วงเงิน BG | ค่าธรรมเนียม
+    col_raw = [22, 70, 70, 188, 42, 58, 58, 32, 78, 77]
     sc  = CW / sum(col_raw)
     cw  = [w * sc for w in col_raw]
 
-    row_h = 30; hdr_h = 22
-    fp_max = 10   # รายการสูงสุดหน้าแรก (มี header)
-    np_max = 18   # รายการสูงสุดหน้าถัดไป
+    row_h = 36; hdr_h = 22
 
-    # แบ่งหน้า
-    pages = []; rem = items[:]
-    pages.append(rem[:fp_max]); rem = rem[fp_max:]
-    while rem:
-        pages.append(rem[:np_max]); rem = rem[np_max:]
-    tp = len(pages)
+    note = _s(data.get('note', ''), '')
+    note_lines = _wrap(cv, note, F, S14, CW - 10, 3) if note and note != '-' else []
+    # ความสูงของส่วนปิดท้าย: แถวรวม + กล่อง Total Fee + หมายเหตุ + ลงนาม
+    closing_h = (20 + 8) + (24 + 10) + ((LINE * (1 + len(note_lines)) + 6) if note_lines else 0) + (8 + 62)
 
-    for pi, pg_items in enumerate(pages):
-        is_first = pi == 0
-        is_last  = pi == tp - 1
-        cv.setPageSize(landscape(A4))
-        pw, ph = L_W, L_H
-        y  = ph - MT; tx = ML
+    st = {'page': 1, 'y': 0, 'rows': 0}
 
-        if is_first:
-            # ── Company Header ──
-            # ★ font sizes +2pt: 10→12, 6→8, 5.5→7.5, 12→14, 7→9, 7.5→9.5
-            _tx(cv, pw/2, y, _co(data, 'companyName'), FB, 12, CH, 'center'); y -= 13
-            en = _co(data, 'companyNameEn')
-            if en != '-':
-                _tx(cv, pw/2, y, f"{en} (สำนักงานใหญ่)", F, 8, CM, 'center'); y -= 10
-            adr = _co(data, 'address')
-            if adr != '-':
-                _tx(cv, pw/2, y, adr, F, 7.5, CL, 'center'); y -= 9
-            inf = (f"โทร. {_co(data, 'phone')}  "
-                   f"แฟกซ์: {_co(data, 'fax')}  "
-                   f"เลขประจำตัวผู้เสียภาษี: {_co(data, 'taxId')}")
-            _tx(cv, pw/2, y, inf, F, 7.5, CL, 'center'); y -= 14
+    def footer():
+        _ln(cv, ML, MB+10, pw-MR, MB+10, CB2, 0.3)
+        _tx(cv, pw/2, MB+2,
+            f"Request Approve LG — Contract Tracker Pro  |  Generated: {_tbe()}  |  หน้า {st['page']}/{tp or st['page']}",
+            F, S10, CL, 'center')
 
-            _ln(cv, ML, y, pw-MR, y, CH, 1.2); y -= 16
-            _tx(cv, pw/2, y, 'Request Approve LG (ขออนุมัติหนังสือค้ำประกัน)', FB, 14, CH, 'center'); y -= 10
-            _ln(cv, ML, y, pw-MR, y, CH, 1.2); y -= 16
-
-            # ── Info row ──
-            c1 = ML; c1v = ML + 55; c2 = pw/2 + 10; c2v = pw/2 + 85
-            _tx(cv, c1,  y, 'Date :',          FB, 9, CM)
-            _tx(cv, c1v, y, _s(data.get('date', _tbe())), F, 9.5, CT)
-            _tx(cv, c2,  y, 'Create LG By :',  FB, 9, CM)
-            _tx(cv, c2v, y, _s(data.get('createdBy'), ''), F, 9.5, CT); y -= 13
-
-            _tx(cv, c1,  y, 'จำนวนรายการ :',   FB, 9, CM)
-            _tx(cv, c1v, y, f"{len(items)} รายการ", F, 9.5, CT)
-            _tx(cv, c2,  y, 'รวมวงเงินทั้งหมด :', FB, 9, CM)
-            _tx(cv, c2v, y, f"{_fm(tot_amt)} บาท", FB, 9.5, CA); y -= 16
-        else:
-            # ── Continuation header ──
-            _tx(cv, ML, y, 'Request Approve LG (ต่อ)', FB, 10, CH)    # ★ 8→10
-            _tx(cv, pw-MR, y, f"หน้า {pi+1}/{tp}", F, 7.5, CL, 'right')  # ★ 5.5→7.5
-            y -= 6
-            _ln(cv, ML, y, pw-MR, y, CB, 0.5); y -= 14
-
-        # ── TABLE HEADER ──
-        thy = y
-        _rc(cv, tx, thy - hdr_h, CW, hdr_h, fi=HexColor('#eeeeee'), st=CB, sw=0.5)
+    def table_header(y):
+        _rc(cv, tx, y - hdr_h, CW, hdr_h, fi=HexColor('#eeeeee'), st=CB, sw=0.5)
         hds = ['No.', 'SR No.', 'เลขสัญญา', 'ชื่อโครงการ / คู่สัญญา',
                'สถานะ', 'เริ่มต้น', 'สิ้นสุด', 'เดือน', 'วงเงิน BG', 'ค่าธรรมเนียม']
         hal = ['center', 'left', 'left', 'left', 'center', 'left', 'left', 'center', 'right', 'right']
         cx = tx
-        # ★ header font 6→8
         for hd, ha, w in zip(hds, hal, cw):
             hx = (cx + w/2 if ha == 'center' else
                   cx + 3   if ha == 'left'   else
                   cx + w - 3)
-            _tx(cv, hx, thy - hdr_h + 7, hd, FB, 8, CH, ha)
+            _tx(cv, hx, y - hdr_h + 7, hd, FB, S14, CH, ha)
             cx += w
         cx = tx
         for w in cw:
             cx += w
             if cx < tx + CW - 1:
-                _ln(cv, cx, thy, cx, thy - hdr_h, CB, 0.3)
-        y = thy - hdr_h
+                _ln(cv, cx, y, cx, y - hdr_h, CB, 0.3)
+        return y - hdr_h
 
-        # ── DATA ROWS ──
-        si = 0 if pi == 0 else fp_max + (pi - 1) * np_max
-        for ri, item in enumerate(pg_items):
-            ai  = si + ri
-            ry  = y - row_h
-            bg  = CRA if ri % 2 == 1 else None
-            _rc(cv, tx, ry, CW, row_h, fi=bg, st=CB2, sw=0.3)
-            cx = tx
-            for w in cw:
-                cx += w
-                if cx < tx + CW - 1:
-                    _ln(cv, cx, y, cx, ry, CB2, 0.3)
+    def new_page():
+        footer()
+        cv.showPage()
+        cv.setPageSize(landscape(A4))
+        st['page'] += 1; st['rows'] = 0
+        y = ph - MT
+        _tx(cv, ML, y, 'Request Approve LG (ต่อ)', FB, S14, CH)
+        _tx(cv, pw-MR, y, f"หน้า {st['page']}/{tp or st['page']}", F, S12, CL, 'right')
+        y -= 6
+        _ln(cv, ML, y, pw-MR, y, CB, 0.5); y -= 14
+        st['y'] = table_header(y)
 
-            cx = tx; ty1 = ry + row_h - 10; ty2 = ry + row_h - 21
+    # ── หน้าแรก: หัวบริษัท + ชื่อฟอร์ม + ข้อมูลสรุป ──
+    cv.setPageSize(landscape(A4))
+    y = _company_header(cv, data, ph - MT, CH) - 14
+    _ln(cv, ML, y, pw-MR, y, CH, 1.2); y -= 16
+    _tx(cv, pw/2, y, 'Request Approve LG (ขออนุมัติหนังสือค้ำประกัน)', FB, S16, CH, 'center'); y -= 9
+    _ln(cv, ML, y, pw-MR, y, CH, 1.2); y -= 17
 
-            # ★ data font: 6.5→8.5, 5.5→7.5, 6→8, 5→7
-            _tx(cv, cx + cw[0]/2, ty1, str(ai+1), F, 8.5, CT, 'center'); cx += cw[0]
-            _tx(cv, cx + 3, ty1, _trunc(cv, _s(item.get('sr'),       '-'), F, 8.5, cw[1]-6), F, 8.5, CT); cx += cw[1]
-            _tx(cv, cx + 3, ty1, _trunc(cv, _s(item.get('contract'), '-'), F, 8.5, cw[2]-6), F, 8.5, CT); cx += cw[2]
+    c1 = ML; c2 = pw/2 + 10
+    w1 = max(sw('Date :', FB), sw('จำนวนรายการ :', FB)) + 8          # ค่าเริ่มหลังป้ายที่ยาวที่สุด (เดิมป้ายทับค่า)
+    w2 = max(sw('Create LG By :', FB), sw('รวมวงเงินทั้งหมด :', FB)) + 8
+    _tx(cv, c1, y, 'Date :', FB, S14, CM)
+    _tx(cv, c1 + w1, y, _s(data.get('date', _tbe())), F, S14, CT)
+    _tx(cv, c2, y, 'Create LG By :', FB, S14, CM)
+    _tx(cv, c2 + w2, y, _s(data.get('createdBy'), ''), F, S14, CT); y -= LINE
+    _tx(cv, c1, y, 'จำนวนรายการ :', FB, S14, CM)
+    _tx(cv, c1 + w1, y, f"{len(items)} รายการ", F, S14, CT)
+    _tx(cv, c2, y, 'รวมวงเงินทั้งหมด :', FB, S14, CM)
+    _tx(cv, c2 + w2, y, f"{_fm(tot_amt)} บาท", FB, S14, CA); y -= 12
+    st['y'] = table_header(y)
 
-            # ชื่อโครงการ (wrap 2 lines) + คู่สัญญา
-            proj_lines = _wrap(cv, _s(item.get('project'), '-'), FB, 8.5, cw[3] - 6, 2)
-            _tx(cv, cx + 3, ty1, proj_lines[0], FB, 8.5, CT)
-            if len(proj_lines) > 1:
-                _tx(cv, cx + 3, ty2, proj_lines[1], FB, 7.5, CT)
-            else:
-                cust = _s(item.get('customer'), '')
-                if cust and cust != '-':
-                    _tx(cv, cx + 3, ty2, _trunc(cv, cust, F, 7.5, cw[3]-6), F, 7.5, CM)
-            cx += cw[3]
+    # ── DATA ROWS ──
+    for ai, item in enumerate(items):
+        is_last_item = ai == len(items) - 1
+        need = row_h + (closing_h if is_last_item else 0)
+        if st['y'] - need < _BOTTOM and st['rows'] > 0:
+            new_page()
+        y  = st['y']
+        ry = y - row_h
+        bg = CRA if st['rows'] % 2 == 1 else None
+        _rc(cv, tx, ry, CW, row_h, fi=bg, st=CB2, sw=0.3)
+        cx = tx
+        for w in cw:
+            cx += w
+            if cx < tx + CW - 1:
+                _ln(cv, cx, y, cx, ry, CB2, 0.3)
 
-            urg = item.get('urgent') in [True, 'TRUE', 'true', '1']
-            if urg:
-                _rc(cv, cx + (cw[4]-26)/2, ty1-2, 26, 11,
-                    fi=HexColor('#ffebee'), st=HexColor('#ef9a9a'), sw=0.3, r=2)
-                _tx(cv, cx + cw[4]/2, ty1, 'ด่วน', FB, 7, CR, 'center')   # ★ 5→7
-            else:
-                _tx(cv, cx + cw[4]/2, ty1, 'ปกติ', F,  7, CL, 'center')   # ★ 5→7
-            cx += cw[4]
+        cx = tx; ty1 = ry + row_h - 12; ty2 = ty1 - LINE
 
-            _tx(cv, cx + 3, ty1, _s(item.get('start'), '-'), F, 8, CT); cx += cw[5]  # ★ 6→8
-            _tx(cv, cx + 3, ty1, _s(item.get('end'),   '-'), F, 8, CT); cx += cw[6]  # ★ 6→8
-            _tx(cv, cx + cw[7]/2, ty1, _s(item.get('duration'), '-'), F, 8.5, CT, 'center'); cx += cw[7]  # ★ 6.5→8.5
-            _tx(cv, cx + cw[8]-3, ty1, _fm(item.get('amount')), F, 8.5, CT, 'right'); cx += cw[8]         # ★ 6.5→8.5
-            _tx(cv, cx + cw[9]-3, ty1, _fm(item.get('fee')),    F, 8.5, CT, 'right')                      # ★ 6.5→8.5
+        _tx(cv, cx + cw[0]/2, ty1, str(ai+1), F, S14, CT, 'center'); cx += cw[0]
+        _tx(cv, cx + 3, ty1, _trunc(cv, _s(item.get('sr'),       '-'), F, S14, cw[1]-6), F, S14, CT); cx += cw[1]
+        _tx(cv, cx + 3, ty1, _trunc(cv, _s(item.get('contract'), '-'), F, S14, cw[2]-6), F, S14, CT); cx += cw[2]
 
-            y = ry
+        # ชื่อโครงการ (wrap 2 lines) + คู่สัญญา
+        proj_lines = _wrap(cv, _s(item.get('project'), '-'), FB, S14, cw[3] - 6, 2)
+        _tx(cv, cx + 3, ty1, proj_lines[0], FB, S14, CT)
+        if len(proj_lines) > 1:
+            _tx(cv, cx + 3, ty2, proj_lines[1], FB, S14, CT)
+        else:
+            cust = _s(item.get('customer'), '')
+            if cust and cust != '-':
+                _tx(cv, cx + 3, ty2, _trunc(cv, cust, F, S14, cw[3]-6), F, S14, CM)
+        cx += cw[3]
 
-        if is_last:
-            # ── Total row ──
-            # ★ total/summary font: 7→9, 10→12, 5.5→7.5, 6.5→8.5
-            th = 18; ty = y - th
-            _rc(cv, tx, ty, CW, th, fi=CBG2, st=CB, sw=0.5)
-            lx = tx
-            for i in range(8): lx += cw[i]
-            _tx(cv, lx - 5,              ty + 5, 'รวมทั้งหมด',   FB, 9,   CH, 'right')
-            _tx(cv, tx + sum(cw[:9]) - 3, ty + 5, _fm(tot_amt),  FB, 9,   CH, 'right')
-            _tx(cv, tx + sum(cw[:10])- 3, ty + 5, _fm(tot_fee),  FB, 9,   CH, 'right')
-            y = ty - 8
+        urg = item.get('urgent') in [True, 'TRUE', 'true', '1']
+        if urg:
+            _rc(cv, cx + (cw[4]-30)/2, ty1-3.5, 30, 13,
+                fi=HexColor('#ffebee'), st=HexColor('#ef9a9a'), sw=0.3, r=2)
+            _tx(cv, cx + cw[4]/2, ty1, 'ด่วน', FB, S14, CR, 'center')
+        else:
+            _tx(cv, cx + cw[4]/2, ty1, 'ปกติ', F,  S14, CM, 'center')
+        cx += cw[4]
 
-            # ── Grand total box ──
-            _rc(cv, ML + CW*0.5, y-24, CW*0.5, 24, fi=CBG2, st=CB2, sw=0.3, r=4)
-            _tx(cv, pw-MR-8, y-15, f"Total Fee : {_fm(tot_fee)} บาท", FB, 12, CP, 'right')  # ★ 10→12
-            y -= 34
+        _tx(cv, cx + 3, ty1, _s(item.get('start'), '-'), F, S14, CT); cx += cw[5]
+        _tx(cv, cx + 3, ty1, _s(item.get('end'),   '-'), F, S14, CT); cx += cw[6]
+        _tx(cv, cx + cw[7]/2, ty1, _s(item.get('duration'), '-'), F, S14, CT, 'center'); cx += cw[7]
+        _tx(cv, cx + cw[8]-3, ty1, _fm(item.get('amount')), F, S14, CT, 'right'); cx += cw[8]
+        _tx(cv, cx + cw[9]-3, ty1, _fm(item.get('fee')),    F, S14, CT, 'right')
 
-            # ── หมายเหตุ ──
-            note = _s(data.get('note', ''), '')
-            if note and note != '-':
-                _tx(cv, ML, y, 'หมายเหตุ :', FB, 9, CM); y -= 12   # ★ 7→9
-                _tx(cv, ML + 5, y, note,      F,  9.5, CT); y -= 16  # ★ 7.5→9.5
+        st['y'] = ry; st['rows'] += 1
 
-            # ── Signature ──
-            y -= 8; sgw = CW / 2 - 15
-            for sx, lbl in [(ML, 'ผู้ขอ (Requested By)'), (ML + sgw + 30, 'ผู้อนุมัติ (Approved By)')]:
-                _tx(cv, sx, y, lbl, FB, 8.5, CM)                           # ★ 6.5→8.5
-                _ln(cv, sx, y-30, sx+sgw-10, y-30, CB, 0.5, (2, 2))
-                _tx(cv, sx, y-40, 'ลงชื่อ ...................................', F, 7.5, CL)   # ★ 5.5→7.5
-                _tx(cv, sx, y-50, 'วันที่ ......../........./............',    F, 7.5, CL)   # ★ 5.5→7.5
+    # ── Total row ──
+    y = st['y']
+    th = 20; ty = y - th
+    _rc(cv, tx, ty, CW, th, fi=CBG2, st=CB, sw=0.5)
+    _tx(cv, tx + sum(cw[:8]) - 5,  ty + 6, 'รวมทั้งหมด',  FB, S14, CH, 'right')
+    _tx(cv, tx + sum(cw[:9]) - 3,  ty + 6, _fm(tot_amt),  FB, S14, CH, 'right')
+    _tx(cv, tx + sum(cw[:10]) - 3, ty + 6, _fm(tot_fee),  FB, S14, CH, 'right')
+    y = ty - 8
 
-        # ── Footer ──
-        _ln(cv, ML, MB+10, pw-MR, MB+10, CB2, 0.3)
-        _tx(cv, pw/2, MB+2,
-            f"Request Approve LG — Contract Tracker Pro  |  Generated: {_tbe()}  |  หน้า {pi+1}/{tp}",
-            F, 6.5, CL, 'center')  # ★ 4.5→6.5
+    # ── Grand total box ──
+    _rc(cv, ML + CW*0.5, y-24, CW*0.5, 24, fi=CBG2, st=CB2, sw=0.3, r=4)
+    _tx(cv, pw-MR-8, y-16, f"Total Fee : {_fm(tot_fee)} บาท", FB, S16, CP, 'right')
+    y -= 34
 
-        if not is_last:
-            cv.showPage()
+    # ── หมายเหตุ ──
+    if note_lines:
+        y -= 4
+        _tx(cv, ML, y, 'หมายเหตุ :', FB, S14, CM); y -= LINE
+        for ln in note_lines:
+            _tx(cv, ML + 5, y, ln, F, S14, CT); y -= LINE
+        y -= 2
 
-    cv.save(); buf.seek(0)
-    return buf.getvalue()
+    # ── Signature ──
+    y -= 8; sgw = CW / 2 - 15
+    for sx, lbl in [(ML, 'ผู้ขอ (Requested By)'), (ML + sgw + 30, 'ผู้อนุมัติ (Approved By)')]:
+        _tx(cv, sx, y, lbl, FB, S14, CM)
+        _ln(cv, sx, y-30, sx+sgw-10, y-30, CB, 0.5, (2, 2))
+        _tx(cv, sx, y-43, 'ลงชื่อ ...................................', F, S14, CL)
+        _tx(cv, sx, y-57, 'วันที่ ......../........./............',    F, S14, CL)
+
+    footer()
+    return st['page']
 
 
 # ════════════════════════════════════════════════════════════
@@ -523,19 +531,28 @@ def generate_lg_pdf(data):
 
 def generate_pettycash_pdf(data):
     """
-    สร้าง PDF เอกสารขออนุมัติเบิกจ่ายเงินสดย่อย (Petty Cash)
-    Layout: Landscape A4
+    สร้าง PDF เอกสารขออนุมัติเบิกจ่ายเงินสดย่อย (Petty Cash) — Landscape A4
+    ขึ้นหน้าใหม่เองเมื่อรายการไม่พอหน้า (เดิมวาดต่อลงไปจนล้นกระดาษ)
     """
     _register_fonts()
-    buf = io.BytesIO()
-    cv  = canvas.Canvas(buf, pagesize=landscape(A4))
-    pw, ph = L_W, L_H
-
-    # ★ แก้ไข #3: ใช้ _safe_items
     items = data.get('items', [])
     if not isinstance(items, list):
         logger.warning(f"petty cash 'items' ได้รับ {type(items).__name__} — ใช้ list ว่าง")
         items = []
+    items = [it if isinstance(it, dict) else {} for it in items]
+    tp = _pc_draw(canvas.Canvas(io.BytesIO(), pagesize=landscape(A4)), data, items, 0)
+    buf = io.BytesIO()
+    cv  = canvas.Canvas(buf, pagesize=landscape(A4))
+    _pc_draw(cv, data, items, tp)
+    cv.save(); buf.seek(0)
+    return buf.getvalue()
+
+
+def _pc_draw(cv, data, items, tp):
+    """วาดฟอร์ม Petty Cash ทั้งฉบับ — คืนจำนวนหน้า"""
+    pw, ph = L_W, L_H
+    tx = ML
+    sw = lambda t, f=F, z=S14: cv.stringWidth(t, f, z)
 
     payee      = _s(data.get('payee'), '')
     pay_method = data.get('payMethod', 'cash')
@@ -547,156 +564,173 @@ def generate_pettycash_pdf(data):
     tw = sum(_pf(it.get('wht'))    for it in items)
     tn = sum(_pf(it.get('net'))    for it in items)
 
-    y = ph - MT; tx = ML
-
-    # ── HEADER ──
-    # ★ font sizes +2pt: 10→12, 6.5→8.5, 5.5→7.5, 9→11
-    _ln(cv, ML, y+2, pw-MR, y+2, CP, 2)
-    _tx(cv, pw/2, y-10, _co(data, 'companyName'), FB, 12, CP, 'center')   # ★ 10→12
-    en = _co(data, 'companyNameEn')
-    if en != '-':
-        _tx(cv, pw/2, y-22, f"{en} (สำนักงานใหญ่)", F, 8.5, CM, 'center')      # ★ 6.5→8.5
-    adr = _co(data, 'address')
-    if adr != '-':
-        _tx(cv, pw/2, y-32, adr, F, 7.5, CL, 'center')                          # ★ 5.5→7.5
-    inf = (f"โทร. {_co(data, 'phone')}  "
-           f"แฟกซ์: {_co(data, 'fax')}  "
-           f"เลขประจำตัวผู้เสียภาษี: {_co(data, 'taxId')}")
-    _tx(cv, pw/2, y-41, inf, F, 7.5, CL, 'center')                              # ★ 5.5→7.5
-    y -= 50
-    _ln(cv, ML, y, pw-MR, y, CP, 1.5); y -= 18
-
-    # ── TITLE ──
-    _rc(cv, ML, y-17, CW, 17, fi=CBG, st=CB2, sw=0.3, r=3)
-    _tx(cv, pw/2, y-13, 'เอกสารขออนุมัติเบิกจ่าย เงินสดย่อย ( Petty Cash )', FB, 11, CP, 'center')  # ★ 9→11
-    y -= 26
-
-    # ── INFO SECTION ──
-    # ★ 7→9, 7.5→9.5
-    _tx(cv, ML, y, 'จ่ายให้ บมจ./บจก./หจก./หสม./บุคคลธรรมดา', FB, 9, CM)
-    _tx(cv, ML+200, y, payee if payee != '-' else '', F, 9.5, CT)
-    _ln(cv, ML+198, y-2, pw-MR, y-2, CB, 0.5, (1, 2)); y -= 16
-
-    _tx(cv, ML, y, 'ชำระโดย', FB, 9, CM)
-    cbx = ML + 42
-    _rc(cv, cbx, y-2, 10, 10, st=CH, sw=0.5)
-    if pay_method == 'cheque':
-        _tx(cv, cbx+5, y, '✓', FB, 7, CP, 'center')   # ★ 5→7
-    _tx(cv, cbx+13, y, 'เช็ค', F, 9, CT)              # ★ 7→9
-
-    cbx2 = cbx + 45
-    _rc(cv, cbx2, y-2, 10, 10, st=CH, sw=0.5)
-    if pay_method == 'cash':
-        _tx(cv, cbx2+5, y, '✓', FB, 7, CP, 'center')  # ★ 5→7
-    _tx(cv, cbx2+13, y, 'เงินสด', F, 9, CT)           # ★ 7→9
-
-    dlx = cbx2 + 60
-    _tx(cv, dlx, y, 'ลงวันที่', FB, 9, CM)
-    _tx(cv, dlx+40, y, pay_date, F, 9.5, CT)
-    _ln(cv, dlx+38, y-2, dlx+120, y-2, CB, 0.5, (1, 2))
-    rlx = dlx + 130
-    _tx(cv, rlx, y, 'เลขที่', FB, 9, CM)
-    _tx(cv, rlx+30, y, doc_ref if doc_ref != '-' else '', F, 9.5, CT)
-    _ln(cv, rlx+28, y-2, pw-MR, y-2, CB, 0.5, (1, 2))
-    y -= 16
-
-    # ── สัญญาอ้างอิง ──
-    cn = _s(data.get('contractName'), '')
-    ci = _s(data.get('contractId'),   '')
-    if cn and cn != '-':
-        _tx(cv, ML, y, 'สัญญา :', FB, 9, CM)
-        _tx(cv, ML+42, y, _trunc(cv, cn, F, 9.5, pw/2-ML-50), F, 9.5, CT)
-        _tx(cv, pw/2+20, y, 'เลขที่สัญญา :', FB, 9, CM)
-        _tx(cv, pw/2+90, y, ci if ci != '-' else '', F, 9.5, CT)
-        y -= 14
-
-    # ── TABLE ──
-    row_h = 24; hdr_h = 26
-    pc_raw = [28, 50, 250, 72, 80, 58, 72, 80]
+    # ลำดับ | รหัสงาน | รายการ | เลขที่เอกสาร | รายจ่ายก่อนหักภาษี | ภาษีซื้อ | ภาษีหัก ณ ที่จ่าย | จำนวนเงินสุทธิ
+    pc_raw = [32, 56, 236, 78, 78, 60, 72, 78]
     pc_sc  = CW / sum(pc_raw)
     pcw    = [w * pc_sc for w in pc_raw]
+    row_h = 24; hdr_h = 32
+    SIG_H = 58
+    closing_h = (22 + 10) + 34 + SIG_H * 2
 
-    thy = y
-    _rc(cv, tx, thy-hdr_h, CW, hdr_h, fi=CP, st=CP, sw=0.5)
+    st = {'page': 1, 'y': 0, 'rows': 0}
 
-    # ★ header font 6→8, 5.5→7.5
-    hds = [
-        ('ลำดับ',), ('รหัสงาน',), ('รายการ',), ('เลขที่เอกสาร',),
-        ('รายจ่ายก่อน', 'หักภาษี'),
-        ('ภาษีซื้อ',),
-        ('ภาษีหัก ณ', 'ที่จ่าย (__%)'),
-        ('จำนวนเงิน', 'สุทธิ')
-    ]
-    cx = tx
-    for ht, w in zip(hds, pcw):
-        if len(ht) == 2:
-            _tx(cv, cx + w/2, thy - 9,        ht[0], FB, 8,   white, 'center')  # ★ 6→8
-            _tx(cv, cx + w/2, thy - hdr_h + 6, ht[1], FB, 7.5, white, 'center')  # ★ 5.5→7.5
-        else:
-            _tx(cv, cx + w/2, thy - hdr_h + 8, ht[0], FB, 8,   white, 'center')  # ★ 6→8
-        cx += w
-    y = thy - hdr_h
+    def footer():
+        _ln(cv, ML, MB+10, pw-MR, MB+10, CB2, 0.3)
+        pg = f"  |  หน้า {st['page']}/{tp or st['page']}" if (tp or st['page']) > 1 else ''
+        _tx(cv, pw/2, MB+2,
+            f"เอกสารขออนุมัติเบิกจ่ายเงินสดย่อย (Petty Cash) — Contract Tracker Pro  |  Generated: {_tbe()}{pg}",
+            F, S10, CL, 'center')
 
-    # ── DATA ROWS ──
-    LINE_H = 10
-    dn = max(len(items), 6)
-    for ri in range(dn):
-        item = items[ri] if ri < len(items) else {}
+    def table_header(y):
+        _rc(cv, tx, y-hdr_h, CW, hdr_h, fi=CP, st=CP, sw=0.5)
+        hds = [
+            ('ลำดับ',), ('รหัสงาน',), ('รายการ',), ('เลขที่เอกสาร',),
+            ('รายจ่ายก่อน', 'หักภาษี'),
+            ('ภาษีซื้อ',),
+            ('ภาษีหัก ณ', 'ที่จ่าย (__%)'),
+            ('จำนวนเงิน', 'สุทธิ')
+        ]
+        cx = tx
+        for ht, w in zip(hds, pcw):
+            if len(ht) == 2:
+                _tx(cv, cx + w/2, y - 12,        ht[0], FB, S14, white, 'center')
+                _tx(cv, cx + w/2, y - hdr_h + 6, ht[1], FB, S14, white, 'center')
+            else:
+                _tx(cv, cx + w/2, y - hdr_h + 12, ht[0], FB, S14, white, 'center')
+            cx += w
+        return y - hdr_h
 
-        desc = _s(item.get('description'), '') if item.get('description') else ''
-        # ★ 6.5→8.5
-        desc_lines  = _wrap(cv, desc, F, 8.5, pcw[2] - 6, 3) if desc else ['']
-        n_lines     = len(desc_lines)
-        rh_actual   = max(row_h, 12 + n_lines * LINE_H)
+    def new_page():
+        footer()
+        cv.showPage()
+        cv.setPageSize(landscape(A4))
+        st['page'] += 1; st['rows'] = 0
+        y = ph - MT
+        _tx(cv, ML, y, 'เอกสารขออนุมัติเบิกจ่าย เงินสดย่อย ( Petty Cash ) (ต่อ)', FB, S14, CP)
+        _tx(cv, pw-MR, y, f"หน้า {st['page']}/{tp or st['page']}", F, S12, CL, 'right')
+        y -= 6
+        _ln(cv, ML, y, pw-MR, y, CB, 0.5); y -= 14
+        st['y'] = table_header(y)
 
-        ry = y - rh_actual
-        bg = CRA if ri % 2 == 1 else None
-        _rc(cv, tx, ry, CW, rh_actual, fi=bg, st=CB2, sw=0.3)
+    def draw_row(item, rh, desc_lines):
+        y = st['y']; ry = y - rh
+        bg = CRA if st['rows'] % 2 == 1 else None
+        _rc(cv, tx, ry, CW, rh, fi=bg, st=CB2, sw=0.3)
         cx = tx
         for w in pcw:
             cx += w
             if cx < tx + CW - 1:
                 _ln(cv, cx, y, cx, ry, CB2, 0.3)
+        if item:
+            cx  = tx; tty = y - 15
+            _tx(cv, cx + pcw[0]/2, tty, str(item.get('seq') or st['count'] + 1), F, S14, CT, 'center'); cx += pcw[0]
+            _tx(cv, cx + 3, tty, _trunc(cv, _s(item.get('jobCode'), ''), F, S14, pcw[1]-6), F, S14, CT); cx += pcw[1]
+            for li, ln in enumerate(desc_lines):
+                _tx(cv, cx + 3, tty - li * LINE, ln, F, S14, CT)
+            cx += pcw[2]
+            _tx(cv, cx + 3, tty, _trunc(cv, _s(item.get('docNo'), ''), F, S14, pcw[3]-6), F, S14, CT); cx += pcw[3]
+            _tx(cv, cx + pcw[4]-3, tty, _fmb(item.get('amount')), F, S14, CT, 'right'); cx += pcw[4]
+            _tx(cv, cx + pcw[5]-3, tty, _fmb(item.get('vat')),    F, S14, CT, 'right'); cx += pcw[5]
+            _tx(cv, cx + pcw[6]-3, tty, _fmb(item.get('wht')),    F, S14, CT, 'right'); cx += pcw[6]
+            _tx(cv, cx + pcw[7]-3, tty, _fmb(item.get('net')),    F, S14, CT, 'right')
+        st['y'] = ry; st['rows'] += 1
 
-        cx  = tx; tty = ry + rh_actual - 10
-        seq = item.get('seq', ri + 1) if item else ri + 1
+    # ── HEADER ──
+    cv.setPageSize(landscape(A4))
+    y = ph - MT
+    _ln(cv, ML, y+2, pw-MR, y+2, CP, 2)
+    y = _company_header(cv, data, y - 11, CP) - 9
+    _ln(cv, ML, y, pw-MR, y, CP, 1.5); y -= 18
 
-        # ★ data font: 6.5→8.5, 6→8
-        _tx(cv, cx + pcw[0]/2, tty, str(seq) if item else '', F, 8.5, CT, 'center'); cx += pcw[0]
-        _tx(cv, cx + 3, tty, _s(item.get('jobCode'), '') if item.get('jobCode') else '', F, 8.5, CT); cx += pcw[1]
+    # ── TITLE ──
+    _rc(cv, ML, y-18, CW, 18, fi=CBG, st=CB2, sw=0.3, r=3)
+    _tx(cv, pw/2, y-13, 'เอกสารขออนุมัติเบิกจ่าย เงินสดย่อย ( Petty Cash )', FB, S16, CP, 'center')
+    y -= 30
 
-        for li, ln in enumerate(desc_lines):
-            _tx(cv, cx + 3, tty - li * LINE_H, ln, F, 8.5, CT)
-        cx += pcw[2]
+    # ── INFO SECTION ──
+    lbl = 'จ่ายให้ บมจ./บจก./หจก./หสม./บุคคลธรรมดา'
+    _tx(cv, ML, y, lbl, FB, S14, CM)
+    vx = ML + sw(lbl, FB) + 8
+    _tx(cv, vx, y, _trunc(cv, payee if payee != '-' else '', F, S14, pw - MR - vx - 2), F, S14, CT)
+    _ln(cv, vx - 2, y-3, pw-MR, y-3, CB, 0.5, (1, 2)); y -= 17
 
-        dn_txt = _s(item.get('docNo'), '') if item.get('docNo') else ''
-        _tx(cv, cx + 3, tty, _trunc(cv, dn_txt, F, 8, pcw[3]-6), F, 8, CT); cx += pcw[3]  # ★ 6→8
-        _tx(cv, cx + pcw[4]-3, tty, _fmb(item.get('amount')), F, 8.5, CT, 'right'); cx += pcw[4]  # ★ 6.5→8.5
-        _tx(cv, cx + pcw[5]-3, tty, _fmb(item.get('vat')),    F, 8.5, CT, 'right'); cx += pcw[5]  # ★ 6.5→8.5
-        _tx(cv, cx + pcw[6]-3, tty, _fmb(item.get('wht')),    F, 8.5, CT, 'right'); cx += pcw[6]  # ★ 6.5→8.5
-        _tx(cv, cx + pcw[7]-3, tty, _fmb(item.get('net')),    F, 8.5, CT, 'right')               # ★ 6.5→8.5
-        y = ry
+    _tx(cv, ML, y, 'ชำระโดย', FB, S14, CM)
+    cbx = ML + sw('ชำระโดย', FB) + 8
+    _rc(cv, cbx, y-2, 10, 10, st=CH, sw=0.5)
+    if pay_method == 'cheque':
+        _tick(cv, cbx, y-2, 10, CP)
+    _tx(cv, cbx+14, y, 'เช็ค', F, S14, CT)
+
+    cbx2 = cbx + 14 + sw('เช็ค') + 14
+    _rc(cv, cbx2, y-2, 10, 10, st=CH, sw=0.5)
+    if pay_method == 'cash':
+        _tick(cv, cbx2, y-2, 10, CP)
+    _tx(cv, cbx2+14, y, 'เงินสด', F, S14, CT)
+
+    dlx = cbx2 + 14 + sw('เงินสด') + 24
+    _tx(cv, dlx, y, 'ลงวันที่', FB, S14, CM)
+    dvx = dlx + sw('ลงวันที่', FB) + 8
+    _tx(cv, dvx, y, pay_date, F, S14, CT)
+    _ln(cv, dvx - 2, y-3, dvx + 90, y-3, CB, 0.5, (1, 2))
+    rlx = dvx + 104
+    _tx(cv, rlx, y, 'เลขที่', FB, S14, CM)
+    rvx = rlx + sw('เลขที่', FB) + 8
+    _tx(cv, rvx, y, _trunc(cv, doc_ref if doc_ref != '-' else '', F, S14, pw - MR - rvx - 2), F, S14, CT)
+    _ln(cv, rvx - 2, y-3, pw-MR, y-3, CB, 0.5, (1, 2))
+    y -= 17
+
+    # ── สัญญาอ้างอิง ──
+    cn = _s(data.get('contractName'), '')
+    ci = _s(data.get('contractId'),   '')
+    if cn and cn != '-':
+        _tx(cv, ML, y, 'สัญญา :', FB, S14, CM)
+        cvx = ML + sw('สัญญา :', FB) + 8
+        idx = pw/2 + 60
+        _tx(cv, cvx, y, _trunc(cv, cn, F, S14, idx - cvx - 14), F, S14, CT)
+        _tx(cv, idx, y, 'เลขที่สัญญา :', FB, S14, CM)
+        ivx = idx + sw('เลขที่สัญญา :', FB) + 8
+        _tx(cv, ivx, y, _trunc(cv, ci if ci != '-' else '', F, S14, pw - MR - ivx - 2), F, S14, CT)
+        y -= 16
+    y -= 2
+
+    # ── TABLE ──
+    st['y'] = table_header(y)
+    st['count'] = 0
+    for ri, item in enumerate(items):
+        desc = _s(item.get('description'), '') if item.get('description') else ''
+        desc_lines = _wrap(cv, desc, F, S14, pcw[2] - 6, 3) if desc else ['']
+        rh = max(row_h, 9 + len(desc_lines) * LINE)
+        is_last_item = ri == len(items) - 1
+        need = rh + (closing_h if is_last_item else 0)
+        if st['y'] - need < _BOTTOM and st['rows'] > 0:
+            new_page()
+        draw_row(item or {'seq': ri + 1}, rh, desc_lines)
+        st['count'] += 1
+
+    # แถวว่างให้เขียนเพิ่ม (รวมแล้วไม่เกิน 6 แถว) — เฉพาะเท่าที่หน้านี้ยังมีที่พอสำหรับส่วนปิดท้าย
+    while st['count'] < 6 and st['y'] - row_h - closing_h >= _BOTTOM:
+        draw_row(None, row_h, [''])
+        st['count'] += 1
 
     # ── TOTAL ROW ──
-    # ★ 7→9, 6.5→8.5, 10→12
+    y = st['y']
     tth = 22; tty = y - tth
     _rc(cv, tx, tty, CW, tth, fi=CBG2, st=CB, sw=0.5)
-    _tx(cv, tx + sum(pcw[:4])/2, tty+6, 'รวมทั้งหมด',        FB, 9,   CP, 'center')  # ★ 7→9
-    _tx(cv, tx + sum(pcw[:5])-3, tty+6, _fm(ta) if ta else '', FB, 8.5, CP, 'right')  # ★ 6.5→8.5
-    _tx(cv, tx + sum(pcw[:6])-3, tty+6, _fm(tv) if tv else '', FB, 8.5, CP, 'right')  # ★ 6.5→8.5
-    _tx(cv, tx + sum(pcw[:7])-3, tty+6, _fm(tw) if tw else '', FB, 8.5, CP, 'right')  # ★ 6.5→8.5
-    _tx(cv, tx + sum(pcw[:8])-3, tty+6, _fm(tn) if tn else '', FB, 8.5, CG, 'right')  # ★ 6.5→8.5
+    _tx(cv, tx + sum(pcw[:4])/2, tty+7, 'รวมทั้งหมด',          FB, S14, CP, 'center')
+    _tx(cv, tx + sum(pcw[:5])-3, tty+7, _fm(ta) if ta else '', FB, S14, CP, 'right')
+    _tx(cv, tx + sum(pcw[:6])-3, tty+7, _fm(tv) if tv else '', FB, S14, CP, 'right')
+    _tx(cv, tx + sum(pcw[:7])-3, tty+7, _fm(tw) if tw else '', FB, S14, CP, 'right')
+    _tx(cv, tx + sum(pcw[:8])-3, tty+7, _fm(tn) if tn else '', FB, S14, CG, 'right')
     y = tty - 10
 
     # ── Grand total box ──
-    _rc(cv, ML + CW*0.45, y-22, CW*0.55, 22, fi=CBG2, st=CB2, sw=0.3, r=4)
-    _tx(cv, pw-MR-8, y-14,
+    _rc(cv, ML + CW*0.45, y-24, CW*0.55, 24, fi=CBG2, st=CB2, sw=0.3, r=4)
+    _tx(cv, pw-MR-8, y-16,
         f"จำนวนเงินสุทธิ : {_fm(tn) if tn else '-'} บาท",
-        FB, 12, CG, 'right')  # ★ 10→12
-    y -= 34
+        FB, S16, CG, 'right')
+    y -= 38
 
     # ── SIGNATURES (4 ช่อง 2x2) ──
-    # ★ 6.5→8.5, 5.5→7.5
     sgw = CW / 2 - 15
     sigs = [
         ('ผู้ขอเบิก',   data.get('requester', '')),
@@ -705,19 +739,13 @@ def generate_pettycash_pdf(data):
         ('ผู้อนุมัติ',  data.get('approver',  '')),
     ]
     for si, (lbl, name) in enumerate(sigs):
-        sx = ML             if si % 2 == 0 else ML + sgw + 30
-        sy = y              if si < 2      else y - 52
-        _tx(cv, sx, sy, lbl, FB, 8.5, CM)          # ★ 6.5→8.5
+        sx = ML if si % 2 == 0 else ML + sgw + 30
+        sy = y  if si < 2      else y - SIG_H
+        _tx(cv, sx, sy, lbl, FB, S14, CM)
         if name:
-            _tx(cv, sx+5, sy-12, _s(name, ''), F, 8.5, CT)
-        _ln(cv, sx, sy-28, sx+sgw-10, sy-28, CB, 0.5, (2, 2))
-        _tx(cv, sx, sy-36, 'ลงชื่อ ...........................  วันที่ ......../........./............', F, 7.5, CL)  # ★ 5.5→7.5
+            _tx(cv, sx + sw(lbl, FB) + 10, sy, _s(name, ''), F, S14, CT)
+        _ln(cv, sx, sy-27, sx+sgw-10, sy-27, CB, 0.5, (2, 2))
+        _tx(cv, sx, sy-40, 'ลงชื่อ ...........................  วันที่ ......../........./............', F, S14, CL)
 
-    # ── Footer ──
-    _ln(cv, ML, MB+10, pw-MR, MB+10, CB2, 0.3)
-    _tx(cv, pw/2, MB+2,
-        f"เอกสารขออนุมัติเบิกจ่ายเงินสดย่อย (Petty Cash) — Contract Tracker Pro  |  Generated: {_tbe()}",
-        F, 6.5, CL, 'center')  # ★ 4.5→6.5
-
-    cv.save(); buf.seek(0)
-    return buf.getvalue()
+    footer()
+    return st['page']

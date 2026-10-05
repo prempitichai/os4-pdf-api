@@ -38,6 +38,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
 
 from messenger_images import SCM_LOGO_B64, SCM_WATERMARK_B64
+from template_utils import th_pt
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +95,14 @@ PW, PH = A4            # 595.276 x 841.890
 F       = 'S'          # THSarabunNew regular
 FB      = 'SB'         # THSarabunNew bold
 
-FS_T   = 16            # title
-FS_LBL = 12            # label
-FS_DAT = 10            # data value
+# ขนาดตัวอักษร — TH Sarabun New 14 แบบ Word ทั้งฟอร์ม (th_pt แปลงเป็น pt ของไฟล์ฟอนต์นี้ ดู template_utils)
+# เดิม: ป้าย 12 (= 18.4 ใน Word) ค่าที่กรอก 10 (= 15.3) ตาราง 9.5 (= 14.5) ชื่อฟอร์ม 16 (= 24.5)
+FS_T   = th_pt(16)     # title
+FS_LBL = th_pt(14)     # label
+FS_DAT = th_pt(14)     # data value
 FS_DOT = 10            # dots
+FS_FOOT = th_pt(10)    # footer (ข้อความขอบกระดาษ)
+CHK_SZ = 11            # ขนาดช่องตัวเลือก
 
 LX = 50                # left margin (x)
 RX = PW - 50           # right margin (x)
@@ -206,7 +211,7 @@ def _draw_checkmark(cv, x, ry, sz, color):
 
 
 def _chk(cv, x, yt, checked, label):
-    sz = 14
+    sz = CHK_SZ
     ry = Y(yt) - 2
 
     cv.setLineWidth(1.0)
@@ -222,16 +227,35 @@ def _chk(cv, x, yt, checked, label):
 
     cv.setFont(F, FS_LBL)
     cv.setFillColor(C)
-    cv.drawString(x + sz + 5, ry + 1, label)
+    cv.drawString(x + sz + 5, ry + 2, label)
+
+
+def _paren_chk(cv, x, yt, checked, label):
+    """ตัวเลือกแบบ "( ☐ ) ข้อความ" ของส่วนยานพาหนะ / ความเร่งด่วน"""
+    sz = CHK_SZ
+    ry = Y(yt) - 2
+    cv.setFont(F, FS_LBL); cv.setFillColor(C)
+    cv.drawString(x, Y(yt), '(')
+    bx = x + 7
+    cv.setLineWidth(1.0)
+    if checked:
+        cv.setStrokeColor(HexColor('#4a5eb8')); cv.setFillColor(HexColor('#4a5eb8'))
+        cv.roundRect(bx, ry, sz, sz, 3, fill=1, stroke=1)
+        _draw_checkmark(cv, bx, ry, sz, white)
+    else:
+        cv.setStrokeColor(HexColor('#aab0c0')); cv.setFillColor(white)
+        cv.roundRect(bx, ry, sz, sz, 3, fill=1, stroke=1)
+    cv.setFont(F, FS_LBL); cv.setFillColor(C)
+    cv.drawString(bx + sz + 4, Y(yt), ') ' + label)
 
 
 def _loc_field(cv, lx, yt, label, val, end_x=None):
     """Sub-field ในส่วน สถานที่: label สีเทา 11pt + thin underline + value ซ้าย"""
     end_x = end_x or RX
     C_SUB = HexColor('#666666')
-    cv.setFont(F, 11); cv.setFillColor(C_SUB)
+    cv.setFont(F, FS_LBL); cv.setFillColor(C_SUB)
     cv.drawString(lx, Y(yt), label)
-    lw = cv.stringWidth(label, F, 11)
+    lw = cv.stringWidth(label, F, FS_LBL)
     dot_x1 = lx + lw + 4
     # thin underline แทน dots — ดูสะอาดกว่า
     cv.setStrokeColor(HexColor('#d0d4e8')); cv.setLineWidth(0.4)
@@ -317,10 +341,10 @@ def _split_csv(v):
 def _draw_doc_table(cv, items, t_start, t_end):
     """Draw numbered document table: ลำดับ | รายการเอกสาร | จำนวน (ฉบับ)"""
     COL_NUM  = LX + 35
-    COL_QTY  = RX - 52
+    COL_QTY  = RX - 68       # เดิม 52 — หัวคอลัมน์ "จำนวน (ฉบับ)" ล้นขอบตาราง
     HEADER_H = 20
     ROW_H    = 16
-    FS_TBL   = 9.5
+    FS_TBL   = th_pt(14)
 
     max_rows = max(1, int((t_end - t_start - HEADER_H) / ROW_H))
 
@@ -533,32 +557,8 @@ def generate_messenger_pdf(data):
 
     T_VEH = 168
 
-    cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(50, Y(T_VEH), '(')
-    sz = 14
-    ry_v = Y(T_VEH) - 2
-    cv.setLineWidth(1.0)
-    if is_car:
-        cv.setStrokeColor(HexColor('#4a5eb8')); cv.setFillColor(HexColor('#4a5eb8'))
-        cv.roundRect(58, ry_v, sz, sz, 3, fill=1, stroke=1)
-        _draw_checkmark(cv, 58, ry_v, sz, white)
-    else:
-        cv.setStrokeColor(HexColor('#aab0c0')); cv.setFillColor(white)
-        cv.roundRect(58, ry_v, sz, sz, 3, fill=1, stroke=1)
-    cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(86, Y(T_VEH), ') รถยนต์')
-
-    cv.drawString(165, Y(T_VEH), '(')
-    ry_v2 = Y(T_VEH) - 2
-    if is_moto:
-        cv.setStrokeColor(HexColor('#4a5eb8')); cv.setFillColor(HexColor('#4a5eb8'))
-        cv.roundRect(173, ry_v2, sz, sz, 3, fill=1, stroke=1)
-        _draw_checkmark(cv, 173, ry_v2, sz, white)
-    else:
-        cv.setStrokeColor(HexColor('#aab0c0')); cv.setFillColor(white)
-        cv.roundRect(173, ry_v2, sz, sz, 3, fill=1, stroke=1)
-    cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(201, Y(T_VEH), ') รถมอเตอร์ไซค์')
+    _paren_chk(cv, 50, T_VEH, is_car, 'รถยนต์')
+    _paren_chk(cv, 165, T_VEH, is_moto, 'รถมอเตอร์ไซค์')
 
     _rcol_field(cv, 310, T_VEH, 'เลข PR :', _s(d.get('contractNumber')), RX)
 
@@ -569,31 +569,8 @@ def generate_messenger_pdf(data):
 
     T_URG = 190
 
-    cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(50, Y(T_URG), '(')
-    ry_u = Y(T_URG) - 2
-    cv.setLineWidth(1.0)
-    if urg:
-        cv.setStrokeColor(HexColor('#4a5eb8')); cv.setFillColor(HexColor('#4a5eb8'))
-        cv.roundRect(58, ry_u, sz, sz, 3, fill=1, stroke=1)
-        _draw_checkmark(cv, 58, ry_u, sz, white)
-    else:
-        cv.setStrokeColor(HexColor('#aab0c0')); cv.setFillColor(white)
-        cv.roundRect(58, ry_u, sz, sz, 3, fill=1, stroke=1)
-    cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(86, Y(T_URG), ') ด่วน')
-
-    cv.drawString(165, Y(T_URG), '(')
-    ry_u2 = Y(T_URG) - 2
-    if not urg:
-        cv.setStrokeColor(HexColor('#4a5eb8')); cv.setFillColor(HexColor('#4a5eb8'))
-        cv.roundRect(173, ry_u2, sz, sz, 3, fill=1, stroke=1)
-        _draw_checkmark(cv, 173, ry_u2, sz, white)
-    else:
-        cv.setStrokeColor(HexColor('#aab0c0')); cv.setFillColor(white)
-        cv.roundRect(173, ry_u2, sz, sz, 3, fill=1, stroke=1)
-    cv.setFont(F, FS_LBL); cv.setFillColor(C)
-    cv.drawString(201, Y(T_URG), ') ไม่ด่วน')
+    _paren_chk(cv, 50, T_URG, urg, 'ด่วน')
+    _paren_chk(cv, 165, T_URG, not urg, 'ไม่ด่วน')
 
     _rcol_field(cv, 310, T_URG, 'วันที่สั่งงาน :', _s(d.get('orderDate', _tbe())), RX)
 
@@ -647,7 +624,7 @@ def generate_messenger_pdf(data):
     addr_full = _s(d.get('locationAddress', d.get('locationDetail')))
     if addr_full:
         # คำนวณ fit1 ก่อน แล้วส่งแค่ fit1 ไปวาด (ป้องกัน text ซ้อนบน line 1)
-        lw_a = cv.stringWidth('ที่อยู่ :', F, 11)
+        lw_a = cv.stringWidth('ที่อยู่ :', F, FS_LBL)
         dot_x_a = LX + 8 + lw_a + 4
         mw_a = RX - dot_x_a - 2
         fit1 = addr_full
@@ -745,7 +722,7 @@ def generate_messenger_pdf(data):
     cv.setLineWidth(1.0)
 
     # ── Footer ────────────────────────────────────────────────────────────
-    cv.setFont(F, 7); cv.setFillColor(CL)
+    cv.setFont(F, FS_FOOT); cv.setFillColor(CL)
     cv.drawCentredString(
         PW / 2, 15,
         f"ใบสั่งงาน Messenger & Logistic — Contract Tracker Pro  |  Generated: {_tbe()}"
