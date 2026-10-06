@@ -377,7 +377,8 @@ def build_fields(d):
         add(524, ry, row['tot'],                 7)
         add(564, ry, '00',                       7, True)
 
-    first_val       = row_list[0]['val'] if row_list else ''
+    # ยอดรวมมูลค่าตราสาร = ผลรวมทุกแถว (เดิมพิมพ์มูลค่าของแถวแรก — ผิดเมื่อมีมากกว่า 1 รายการ)
+    first_val       = sum(_pf(r['val']) for r in row_list)
     total_duty      = sum(_pf(r['duty']) for r in row_list)
     total_sur_nums  = [_pf(r['sur']) for r in row_list if r['sur'] not in ('-', '', None)]
     total_sur       = sum(total_sur_nums) if total_sur_nums else 0

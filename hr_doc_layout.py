@@ -12,8 +12,11 @@ hr_doc_layout.py — โครงหน้าร่วมของ "หนัง
 ถ้อยคำของเอกสารอยู่ในไฟล์ generate_*.py ตามเดิม — ไฟล์นี้มีเฉพาะการจัดหน้า
 """
 
+import re
+
 from template_utils import (
-    BODY_PT, TITLE_PT, SMALL_PT, font_face_css, page_head_css, merge_on_template, checkbox_svg
+    BODY_PT, TITLE_PT, SMALL_PT, font_face_css, page_head_css, merge_on_template, checkbox_svg,
+    justify_css, justify_html, nowrap_tokens
 )
 
 # เส้นกรอบรอบเอกสาร — ปิดไว้ (หัวกระดาษของบริษัทมีเส้นและลายน้ำอยู่แล้ว กรอบทำให้หน้าแน่นและเสียความกว้างบรรทัด)
@@ -75,6 +78,7 @@ def build_css(doc_number='', compact=False, frame=None):
     %(frame_css)s
     p        { margin: 0 0 %(gap)s; text-indent: 10mm; text-align: left; word-wrap: break-word; orphans: 2; widows: 2; }
     .nw      { white-space: nowrap; }                 /* ชื่อบริษัท / ที่อยู่ ไม่ถูกตัดกลางคำ */
+    %(justify)s
     .keep    { page-break-inside: avoid; }            /* ย่อหน้าท้าย + ช่องลงนาม อยู่หน้าเดียวกัน (ไม่มีหน้าลายเซ็นที่ไม่มีข้อความ) */
     p.flush  { text-indent: 0; }
     .sec     { font-weight: bold; text-decoration: underline; margin: 3mm 0 1.5mm; page-break-after: avoid; }
@@ -108,7 +112,9 @@ def build_css(doc_number='', compact=False, frame=None):
     .sg-name { margin-left: 11mm; width: 55mm; text-align: center; padding-top: 0.3mm; }
     .sg-role { margin-left: 11mm; width: 55mm; text-align: center; }
     """ % {'head': page_head_css(doc_number), 'margin': page_margin, 'small': SMALL_PT, 'pt': BODY_PT, 'lh': lh,
-           'frame_css': frame_css, 'gap': '1.6mm' if compact else '2.4mm', 'sgtop': '8.5mm' if compact else '9.5mm'}
+           'frame_css': frame_css, 'gap': '1.6mm' if compact else '2.4mm', 'sgtop': '8.5mm' if compact else '9.5mm',
+           # ย่อหน้า / ข้อสัญญา / ข้อย่อย จัดชิดขอบสองด้าน (กระจายที่รอยต่อคำไทย)
+           'justify': justify_css('p, .cl, .sub')}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -171,16 +177,23 @@ def signatures(cells):
 
 
 def nowrap(text):
-    """ชื่อบริษัท / ที่อยู่ — ไม่ให้ตัวตัดบรรทัดภาษาไทยตัดกลางคำ (เช่น "เทคโน | โลจีส์", "เขตบาง | รัก")
-    ขึ้นบรรทัดใหม่ได้เฉพาะตรงช่องว่างระหว่างคำ ; คำที่ยาวผิดปกติ (ไม่มีช่องว่างเลย) ปล่อยให้ตัดได้ตามเดิม กันล้นกรอบ"""
-    return ' '.join(('<span class="nw">%s</span>' % esc(t)) if len(t) <= 40 else esc(t) for t in str(text or '').split())
+    """ชื่อบริษัท / ที่อยู่ — ไม่ตัดกลางคำ (template_utils.nowrap_tokens)"""
+    return nowrap_tokens(text)
+
+
+# บล็อกข้อความที่จัดชิดขอบสองด้าน: <p>, ข้อสัญญา (.cl), ข้อย่อย (.sub)
+_JUSTIFY_BLOCK = re.compile(r'(<p\b[^>]*>|<div class="(?:cl|sub)">)(.*?)(</p>|</div>)', re.S)
+
+
+def _justify_blocks(body_html):
+    return _JUSTIFY_BLOCK.sub(lambda m: m.group(1) + justify_html(m.group(2)) + m.group(3), body_html)
 
 
 def document(title, body_html, doc_number='', compact=False, frame=None):
     """เอกสารเต็ม: ชื่อเอกสาร + เนื้อหา (มี/ไม่มีเส้นกรอบตาม FRAME)"""
     return ('<!DOCTYPE html><html><head><meta charset="utf-8"><style>%s</style></head><body>'
             '<div class="frame"><div class="band">%s</div>%s</div></body></html>'
-            % (build_css(doc_number, compact, frame), esc(title), body_html))
+            % (build_css(doc_number, compact, frame), esc(title), _justify_blocks(body_html)))
 
 
 # ซ้อนเนื้อหาทุกหน้าบนหัวกระดาษของบริษัท — ตัวเดียวกับที่หนังสืออื่นใช้ (template_utils.merge_on_template)

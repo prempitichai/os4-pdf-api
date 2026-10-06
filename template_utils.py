@@ -24,8 +24,10 @@ Functions:
 """
 
 import os
+import re
 import base64
 import logging
+from functools import lru_cache
 from io import BytesIO
 from pypdf import PdfReader, PdfWriter
 
@@ -111,7 +113,7 @@ def th_pt(word_pt):
 
 BODY_PT  = th_pt(14)    # เนื้อหา ป้าย ช่องกรอก ตาราง — ทุกฟอร์ม
 TITLE_PT = th_pt(16)    # ชื่อเอกสาร (ตัวหนา)
-SMALL_PT = th_pt(12)    # ข้อความขอบกระดาษ: เลขที่/เลขหน้า, ที่อยู่บริษัทท้ายฟอร์ม
+SMALL_PT = th_pt(8)     # ข้อความขอบกระดาษ: เลขที่/เลขหน้า, ข้อความท้ายฟอร์ม (ผู้ใช้กำหนด 8 เมื่อ 2026-10-06)
 LINE_PT  = 18           # ระยะบรรทัดของหนังสือ (pt จริง) ≈ ระยะบรรทัดเดี่ยวของ TH Sarabun New 14 ใน Word (18.6)
 LINE_H   = round(LINE_PT / BODY_PT, 3)   # ค่า line-height ของ CSS
 
@@ -145,6 +147,112 @@ def checkbox_svg(checked, mark='tick', size_mm=3.6):
             % (size_mm, size_mm, m))
 
 
+# ══════════════════════════════════════════════════════════════════════
+# รอยต่อคำภาษาไทย — ใช้ทั้งการจัดชิดขอบสองด้าน (HTML) และการตัดบรรทัดในช่องตาราง (ReportLab)
+# ══════════════════════════════════════════════════════════════════════
+
+def _is_thai(ch):
+    return '฀' <= ch <= '๿'
+
+
+@lru_cache(maxsize=4096)
+def thai_breaks(text):
+    """ตำแหน่ง (index) ที่ขึ้นบรรทัดใหม่ได้ตามตัวตัดคำของ Pango/libthai — ชุดเดียวกับที่ WeasyPrint ใช้ตัดบรรทัด
+    คืน frozenset ; ใช้ไม่ได้ (ไม่มี WeasyPrint / ฟังก์ชันภายในเปลี่ยน) → None แล้วผู้เรียกใช้วิธีสำรอง"""
+    try:
+        from weasyprint.text.line_break import get_log_attrs
+        attrs = get_log_attrs(text, 'th')
+        if isinstance(attrs, tuple):          # WeasyPrint รุ่นเก่าคืน (bytestring, log_attrs)
+            attrs = attrs[-1]
+        return frozenset(i for i in range(1, len(text)) if attrs[i].is_line_break)
+    except Exception as e:                    # pragma: no cover - ขึ้นกับสภาพแวดล้อม
+        logger.warning(f'thai_breaks ใช้ไม่ได้ ({type(e).__name__}: {e}) — ใช้วิธีสำรอง')
+        return None
+
+
+# ── จัดชิดขอบสองด้าน (กระจายแบบไทย) ──
+# WeasyPrint กระจายช่องไฟได้เฉพาะที่อักขระช่องว่าง (U+0020 / U+00A0) — ข้อความไทยมีช่องว่างบรรทัดละ 0–3 จุด
+# text-align: justify เฉย ๆ จึงได้ช่องโหว่กว้างตรงช่องว่าง และบรรทัดที่ไม่มีช่องว่างไม่ถูกจัดเลย
+# วิธีที่ใช้: แทรกช่องว่าง "กว้างศูนย์" (word-spacing ติดลบเท่าความกว้างช่องว่างของฟอนต์พอดี) ระหว่างตัวอักษรไทย
+#   • ที่รอยต่อคำ (thai_breaks)  → U+0020 : ขึ้นบรรทัดใหม่ได้ + เป็นจุดกระจาย
+#   • ภายในคำ                  → U+00A0 : ขึ้นบรรทัดใหม่ไม่ได้ + เป็นจุดกระจาย
+#   → บรรทัดชิดขอบขวาเสมอกัน ช่องไฟเพิ่มกระจายเท่ากันทั้งบรรทัด (แบบ "กระจายแบบไทย" ของ Word) และไม่ตัดกลางคำ
+#   ไม่แทรกหน้าสระ/วรรณยุกต์ที่ซ้อนบน-ล่าง และหน้า "ำ" (นิคหิตของ ำ ต้องเกาะพยัญชนะตัวหน้า)
+# ช่องว่างจริงในข้อความอยู่ใน <span class="sp"> ซึ่งคืน word-spacing ปกติ จึงกว้างเท่าเดิม
+# ผลข้างเคียง: ข้อความที่คัดลอกจาก PDF มีช่องว่างแทรกระหว่างตัวอักษรไทย
+#   (ชั้นข้อความของเอกสารที่ซ้อนหัวกระดาษอ่านไม่ได้อยู่ก่อนแล้ว — "า" ถูกอ่านเป็น "ำ" จากไฟล์ฟอนต์นี้ และหลังซ้อนหัวกระดาษตัวอ่านข้อความคืนเฉพาะข้อความของหัวกระดาษ)
+JUSTIFY = 'letter'                              # 'letter' = กระจายระหว่างตัวอักษร ; 'word' = เฉพาะรอยต่อคำ ; '' = ชิดซ้าย
+_SPACE_EM      = 675 / 2048                     # ความกว้างช่องว่าง / NBSP ของ THSarabunNew.ttf
+_SPACE_EM_BOLD = 706 / 2048                     # ของ THSarabunNew-Bold.ttf
+_TOKEN_RE = re.compile(r'(<[^>]+>|&[#\w]+;)')
+_TH_ZERO_WIDTH = frozenset('ัิีึืฺุู็่้๊๋์ํ๎')
+
+
+def justify_css(selectors):
+    """CSS ของบล็อกที่จัดชิดขอบสองด้าน — selectors เช่น '.para' หรือ 'p, .cl, .sub'"""
+    if not JUSTIFY:
+        return '.nw { white-space: nowrap; }'
+    sel = [x.strip() for x in selectors.split(',')]
+    join = lambda suffix: ', '.join(x + suffix for x in sel)
+    return ('%s { text-align: justify; word-spacing: -%.5fem; }\n'
+            '    %s { word-spacing: -%.5fem; }\n'
+            '    %s { word-spacing: 0; }\n'
+            '    .nw { white-space: nowrap; }'
+            % (join(''), _SPACE_EM, join(' b') + ', ' + join(' strong'), _SPACE_EM_BOLD, join(' .sp')))
+
+
+def _justify_chunk(text, breakable=True):
+    """ข้อความล้วน (escape แล้ว ไม่มีแท็ก) → แทรกจุดกระจายระหว่างตัวอักษรไทย + ห่อช่องว่างจริง
+    breakable=False (ข้อความใน .nw) → ไม่มีจุดขึ้นบรรทัดใหม่"""
+    has_thai = any(_is_thai(c) for c in text)
+    bp = (thai_breaks(text) if breakable else frozenset()) if has_thai else frozenset()
+    if bp is None:
+        return None
+    letter = JUSTIFY == 'letter'
+    out = []
+    for i, ch in enumerate(text):
+        if i and _is_thai(text[i - 1]) and _is_thai(ch) and ch not in _TH_ZERO_WIDTH and ch != 'ำ':
+            if i in bp:
+                out.append(' ')
+            elif letter:
+                out.append(' ')
+        out.append('<span class="sp"> </span>' if ch in ' \n\t' else ch)
+    return ''.join(out)
+
+
+def justify_html(html):
+    """HTML ของย่อหน้า (ข้อความ escape แล้ว + แท็ก inline) → เตรียมสำหรับบล็อกที่ใช้ justify_css
+    ข้อความใน <span class="nw">…</span> (ชื่อ/ที่อยู่ที่ห้ามตัดกลางคำ) ร่วมกระจายช่องไฟแต่ไม่มีจุดขึ้นบรรทัดใหม่
+    ตัวตัดคำใช้ไม่ได้ → คืน HTML เดิม (ได้ผลแบบ justify ธรรมดา)"""
+    if not JUSTIFY or not html:
+        return html
+    out, keep = [], 0
+    for part in _TOKEN_RE.split(str(html)):
+        if not part:
+            continue
+        if part.startswith('<'):
+            if part.startswith('<span class="nw"'):
+                keep += 1
+            elif part == '</span>' and keep:
+                keep -= 1
+            out.append(part)
+        elif part.startswith('&') and part.endswith(';'):
+            out.append(part)
+        else:
+            j = _justify_chunk(part, breakable=not keep)
+            if j is None:
+                return html
+            out.append(j)
+    return ''.join(out)
+
+
+def nowrap_tokens(text, escape=True):
+    """ชื่อบริษัท / ชื่อบุคคล / ที่อยู่ — ขึ้นบรรทัดใหม่ได้เฉพาะตรงช่องว่าง ไม่ตัดกลางชื่อ (เช่น "เทคโน | โลจีส์", "เขตบาง | รัก")
+    คำที่ยาวผิดปกติ (เกิน 40 ตัวอักษรไม่มีช่องว่าง) ปล่อยให้ตัดตามรอยต่อคำ กันล้นขอบ"""
+    esc = (lambda t: (t.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;'))) if escape else (lambda t: t)
+    return ' '.join(('<span class="nw">%s</span>' % esc(t)) if len(t) <= 40 else esc(t) for t in str(text or '').split())
+
+
 # ── ตัดบรรทัดสำหรับฟอร์มที่วาดด้วย ReportLab (ไม่มีตัวตัดคำภาษาไทย) ──
 _TH_NO_START = set('ะัาำิีึืฺุู็่้๊๋์ํๅๆฯ')   # สระ/วรรณยุกต์ที่ต้องเกาะตัวอักษรข้างหน้า — ห้ามขึ้นต้นบรรทัด
 _TH_NO_END   = set('เแโใไั')                  # สระนำ และไม้หันอากาศ (ต้องมีตัวสะกดตาม) — ห้ามอยู่ท้ายบรรทัด
@@ -153,8 +261,8 @@ _TH_TONES    = set('่้๊๋')
 
 def wrap_text(width_of, text, max_w, max_lines=2):
     """ตัดข้อความเป็นไม่เกิน max_lines บรรทัด — width_of(ข้อความ) คืนความกว้างเป็น pt
-    เลือกตัดที่ช่องว่างก่อน ; ถ้าไม่มี ตัดระหว่างตัวอักษรโดยไม่แยกสระ/วรรณยุกต์ออกจากพยัญชนะ
-    (เดิมตัดตรงตัวอักษรที่ล้นพอดี จึงได้บรรทัดอย่าง "…รักษาคว" / "ามปลอดภัย…")
+    ตัดที่ช่องว่างหรือรอยต่อคำไทย (thai_breaks) ที่อยู่ท้ายสุดซึ่งยังพอดีบรรทัด
+    ไม่มีรอยต่อคำในช่วงที่พอดี (คำเดียวยาวกว่าช่อง / ตัวตัดคำใช้ไม่ได้) → ตัดระหว่างตัวอักษรโดยไม่แยกสระ/วรรณยุกต์ออกจากพยัญชนะ
     บรรทัดสุดท้ายลงท้ายด้วย '…' ถ้าข้อความยังเหลือ"""
     t = ' '.join(str(text or '').split())
     if not t:
@@ -174,9 +282,10 @@ def wrap_text(width_of, text, max_w, max_lines=2):
             else:
                 hi = mid - 1
         cut = lo
-        sp = t.rfind(' ', 0, cut + 1)
-        if sp > cut * 0.5:
-            cut = sp
+        words = thai_breaks(t) or frozenset()
+        best = max([i for i in words if i <= cut] + [t.rfind(' ', 0, cut + 1)])
+        if best > cut * 0.4:
+            cut = best
         else:
             while cut > 1 and (t[cut] in _TH_NO_START or t[cut - 1] in _TH_NO_END
                                or (t[cut - 1] in _TH_TONES and t[cut - 2] == 'ั')):
@@ -257,6 +366,7 @@ def build_css(fonts=None, doc_number=''):
         orphans: 2; widows: 2;
     }}
     .subject-line + .para {{ margin-top: 4mm; }}
+    {justify_css('.para')}
     .keep-tail {{ page-break-inside: avoid; }}
     /* ── ลายเซ็น (ขอถอน — ขวา) ── */
     .closing-area {{
@@ -486,5 +596,5 @@ def sig_poa_line(label, name):
         <span class="line-cell"></span>
         <span class="lbl">{label}</span>
       </div>
-      <div class="sig-name">({name})</div>
+      <div class="sig-name">({name if str(name or '').strip() else '&nbsp;' * 44})</div>
     </div>"""

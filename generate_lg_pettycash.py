@@ -210,8 +210,8 @@ FB = 'THSarabunNew-Bold'
 # เดิมแต่ละจุดใช้ 7–14 (= 10.7–21.4 ใน Word)
 S16 = th_pt(16)   # ชื่อบริษัท / ชื่อฟอร์ม / ยอดรวม
 S14 = th_pt(14)   # ข้อความทั้งหมด
-S12 = th_pt(12)   # ที่อยู่บริษัทใต้ชื่อ
-S10 = th_pt(10)   # ท้ายกระดาษ
+S12 = th_pt(12)   # ที่อยู่บริษัทใต้ชื่อ (ส่วนหัวฟอร์ม)
+S8  = th_pt(8)    # ข้อความขอบกระดาษ: เลขหน้า, ข้อความท้ายกระดาษ
 LINE = 15         # ระยะบรรทัดของข้อความในตาราง (pt)
 
 
@@ -388,7 +388,7 @@ def _lg_draw(cv, data, items, tp):
         _ln(cv, ML, MB+10, pw-MR, MB+10, CB2, 0.3)
         _tx(cv, pw/2, MB+2,
             f"Request Approve LG — Contract Tracker Pro  |  Generated: {_tbe()}  |  หน้า {st['page']}/{tp or st['page']}",
-            F, S10, CL, 'center')
+            F, S8, CL, 'center')
 
     def table_header(y):
         _rc(cv, tx, y - hdr_h, CW, hdr_h, fi=HexColor('#eeeeee'), st=CB, sw=0.5)
@@ -416,7 +416,7 @@ def _lg_draw(cv, data, items, tp):
         st['page'] += 1; st['rows'] = 0
         y = ph - MT
         _tx(cv, ML, y, 'Request Approve LG (ต่อ)', FB, S14, CH)
-        _tx(cv, pw-MR, y, f"หน้า {st['page']}/{tp or st['page']}", F, S12, CL, 'right')
+        _tx(cv, pw-MR, y, f"หน้า {st['page']}/{tp or st['page']}", F, S8, CL, 'right')
         y -= 6
         _ln(cv, ML, y, pw-MR, y, CB, 0.5); y -= 14
         st['y'] = table_header(y)
@@ -579,7 +579,7 @@ def _pc_draw(cv, data, items, tp):
         pg = f"  |  หน้า {st['page']}/{tp or st['page']}" if (tp or st['page']) > 1 else ''
         _tx(cv, pw/2, MB+2,
             f"เอกสารขออนุมัติเบิกจ่ายเงินสดย่อย (Petty Cash) — Contract Tracker Pro  |  Generated: {_tbe()}{pg}",
-            F, S10, CL, 'center')
+            F, S8, CL, 'center')
 
     def table_header(y):
         _rc(cv, tx, y-hdr_h, CW, hdr_h, fi=CP, st=CP, sw=0.5)
@@ -607,7 +607,7 @@ def _pc_draw(cv, data, items, tp):
         st['page'] += 1; st['rows'] = 0
         y = ph - MT
         _tx(cv, ML, y, 'เอกสารขออนุมัติเบิกจ่าย เงินสดย่อย ( Petty Cash ) (ต่อ)', FB, S14, CP)
-        _tx(cv, pw-MR, y, f"หน้า {st['page']}/{tp or st['page']}", F, S12, CL, 'right')
+        _tx(cv, pw-MR, y, f"หน้า {st['page']}/{tp or st['page']}", F, S8, CL, 'right')
         y -= 6
         _ln(cv, ML, y, pw-MR, y, CB, 0.5); y -= 14
         st['y'] = table_header(y)

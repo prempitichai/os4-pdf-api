@@ -1,7 +1,9 @@
-flask
-gunicorn
-reportlab
-pypdf
-Pillow
-python-docx
-weasyprint
+# รุ่นที่ใช้ตรวจการจัดหน้าของทุกฟอร์ม (2026-10-06) — เดิมไม่ระบุรุ่น ทุกครั้งที่ deploy จึงได้รุ่นล่าสุด ณ วันนั้น
+# และรูปแบบ PDF อาจเปลี่ยนเองโดยไม่มีใครแก้โค้ด ; จะอัปเกรดให้สร้างตัวอย่างทุกฟอร์มตรวจก่อน
+flask==3.1.3
+gunicorn==26.2.0
+reportlab==5.0.1
+pypdf==6.19.0
+Pillow==12.3.0
+python-docx==1.2.0
+weasyprint==70.0

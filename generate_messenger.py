@@ -26,6 +26,7 @@ generate_messenger.py — ใบสั่งงาน Messenger & Logistic
 """
 import io
 import os
+import re
 import base64
 import logging
 from datetime import datetime
@@ -38,7 +39,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
 
 from messenger_images import SCM_LOGO_B64, SCM_WATERMARK_B64
-from template_utils import th_pt
+from template_utils import th_pt, wrap_text
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ FS_T   = th_pt(16)     # title
 FS_LBL = th_pt(14)     # label
 FS_DAT = th_pt(14)     # data value
 FS_DOT = 10            # dots
-FS_FOOT = th_pt(10)    # footer (ข้อความขอบกระดาษ)
+FS_FOOT = th_pt(8)     # footer (ข้อความขอบกระดาษ)
 CHK_SZ = 11            # ขนาดช่องตัวเลือก
 
 LX = 50                # left margin (x)
@@ -338,8 +339,30 @@ def _split_csv(v):
     return [p.strip() for p in s.split(',') if p.strip()]
 
 
-def _draw_doc_table(cv, items, t_start, t_end):
-    """Draw numbered document table: ลำดับ | รายการเอกสาร | จำนวน (ฉบับ)"""
+_QTY_RE = re.compile(r'^(.*?\S)\s*[,:xX×-]?\s*(\d{1,4})\s*ฉบับ\s*$')
+
+
+def _with_qty(lines, total_qty=None):
+    """รายการ → [(ข้อความ, จำนวน)]
+    จำนวนอ่านจากท้ายบรรทัด "… N ฉบับ" (ใบนำส่งเอกสารส่งมาในรูปนี้) ; รายการเดียวและฟอร์มระบุ "จำนวน" → ใช้ค่านั้น ; นอกนั้น 1
+    (เดิมพิมพ์ 1 ทุกแถวเสมอ แม้ข้อความจะเขียนว่า 2 ฉบับ)"""
+    out = []
+    for ln in lines:
+        m = _QTY_RE.match(str(ln))
+        out.append((m.group(1), m.group(2)) if m else (str(ln), None))
+    try:
+        tq = int(float(str(total_qty)))
+    except (TypeError, ValueError):
+        tq = 0
+    if len(out) == 1 and out[0][1] is None and tq > 1:
+        out[0] = (out[0][0], str(tq))
+    return [(t, q or '1') for t, q in out]
+
+
+def _draw_doc_table(cv, items, t_start, t_end, start_no=1, more=0):
+    """Draw numbered document table: ลำดับ | รายการเอกสาร | จำนวน (ฉบับ)
+    items = [(ข้อความ, จำนวน)] ; start_no = เลขลำดับของแถวแรก ; more = จำนวนรายการที่ยังเหลือ (พิมพ์บอกในแถวสุดท้าย)
+    คืนจำนวนรายการที่วาดได้"""
     COL_NUM  = LX + 35
     COL_QTY  = RX - 68       # เดิม 52 — หัวคอลัมน์ "จำนวน (ฉบับ)" ล้นขอบตาราง
     HEADER_H = 20
@@ -347,6 +370,9 @@ def _draw_doc_table(cv, items, t_start, t_end):
     FS_TBL   = th_pt(14)
 
     max_rows = max(1, int((t_end - t_start - HEADER_H) / ROW_H))
+    fit_rows = max_rows - 1 if (more or len(items) > max_rows) else max_rows   # เหลือแถวสุดท้ายไว้บอกว่ามีต่อ
+    row_items = items[:fit_rows]
+    left = len(items) - len(row_items) + more
 
     # ── Header ────────────────────────────────────────────────────────────────
     h_bot = Y(t_start + HEADER_H)   # bottom-left y of header rect
@@ -374,10 +400,11 @@ def _draw_doc_table(cv, items, t_start, t_end):
     cv.line(COL_QTY, Y(t_start), COL_QTY, h_bot)
 
     # ── Data rows ─────────────────────────────────────────────────────────────
-    row_items = items[:max_rows]
     for i in range(max_rows):
         r_bot = Y(t_start + HEADER_H + (i + 1) * ROW_H)
         r_top = r_bot + ROW_H
+        text_y = r_bot + (ROW_H - FS_TBL) / 2
+        max_w = COL_QTY - COL_NUM - 12
 
         if i < len(row_items):
             # filled row
@@ -389,29 +416,26 @@ def _draw_doc_table(cv, items, t_start, t_end):
             cv.line(COL_NUM, r_top, COL_NUM, r_bot)
             cv.line(COL_QTY, r_top, COL_QTY, r_bot)
 
-            text_y = r_bot + (ROW_H - FS_TBL) / 2
-
             cv.setFont(F, FS_TBL); cv.setFillColor(C)
-            ns = str(i + 1)
+            ns = str(start_no + i)
             nw = cv.stringWidth(ns, F, FS_TBL)
             cv.drawString(LX + (COL_NUM - LX - nw) / 2, text_y, ns)
 
-            max_w = COL_QTY - COL_NUM - 12
-            txt = _s(row_items[i])
-            # word-level truncate: snap to last space
-            if cv.stringWidth(txt, F, FS_TBL) > max_w:
-                while len(txt) > 1 and cv.stringWidth(txt, F, FS_TBL) > max_w:
-                    txt = txt[:-1]
-                sp = txt.rfind(' ')
-                if sp > len(txt) // 3:
-                    txt = txt[:sp]
+            # ข้อความยาวเกินช่อง → ตัดที่รอยต่อคำและลงท้าย "…" (เดิมตัดเงียบ ๆ ไม่มีเครื่องหมาย)
+            txt = wrap_text(lambda t: cv.stringWidth(t, F, FS_TBL), _s(row_items[i][0]), max_w, 1)[0]
             cv.setFont(F, FS_TBL); cv.setFillColor(CF)
             cv.drawString(COL_NUM + 6, text_y, txt)
 
             cv.setFont(F, FS_TBL); cv.setFillColor(C)
-            qs = '1'
+            qs = str(row_items[i][1])
             qw = cv.stringWidth(qs, F, FS_TBL)
             cv.drawString(COL_QTY + (RX - COL_QTY - qw) / 2, text_y, qs)
+        elif i == len(row_items) and left > 0:
+            # รายการไม่พอตาราง → บอกว่ามีต่อ (เดิมรายการที่เกินหายไปเฉย ๆ)
+            cv.setStrokeColor(HexColor('#e0e0e8')); cv.setLineWidth(0.3)
+            cv.line(LX, r_bot, RX, r_bot)
+            cv.setFont(FB, FS_TBL); cv.setFillColor(C_ACCENT)
+            cv.drawString(COL_NUM + 6, text_y, 'มีต่อหน้าถัดไปอีก %d รายการ' % left)
         else:
             # empty filler row — แสดง grid เบาๆ เพื่อ fill space
             cv.setStrokeColor(HexColor('#eceeff')); cv.setLineWidth(0.2)
@@ -424,6 +448,7 @@ def _draw_doc_table(cv, items, t_start, t_end):
     cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.7)
     cv.rect(LX, Y(t_start + full_h), RX - LX, full_h, fill=0, stroke=1)
     cv.setLineWidth(1.0)
+    return len(row_items)
 
 
 def _rcol_field(cv, lx, yt, label, val, end_x):
@@ -490,9 +515,13 @@ def generate_messenger_pdf(data):
     # ── Background bands (วาดก่อน text ทั้งหมด) ──────────────────────────
     # Entity section — no border box (ลบกรอบสีฟ้าออก)
 
-    # Signature section band (t=676 → t=790)
+    # หมายเหตุ (ถ้ามี) ได้บรรทัดของตัวเองใต้ผู้ติดต่อ — ส่วนลงนามเลื่อนลง SHIFT pt
+    remarks = _s(d.get('remarks'))
+    SHIFT = 18 if remarks else 0
+
+    # Signature section band
     cv.setFillColor(C_BAND_SIG)
-    cv.rect(LX, Y(790), RX - LX, 114, fill=1, stroke=0)
+    cv.rect(LX, Y(804 + SHIFT), RX - LX, 106, fill=1, stroke=0)   # จากเส้นคั่น (t=698) ถึงใต้บรรทัดผู้อนุมัติ
 
     cv.setLineWidth(1.0)
 
@@ -603,18 +632,21 @@ def generate_messenger_pdf(data):
     _accent_bar(cv, 267)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(267), 'รายละเอียดของงานที่ให้ไปรับ-ส่ง:')
-    _draw_doc_table(cv, _split_items(d.get('jobDetail')), 280, 490)
+    job_items = _with_qty(_split_items(d.get('jobDetail')), d.get('qty'))
+    job_done  = _draw_doc_table(cv, job_items, 280, 490)
 
     # ── สิ่งที่นำกลับ: label t=494, table t=507–597 ─────────────────────
     _accent_bar(cv, 494)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(494), 'สิ่งที่นำกลับ :')
-    _draw_doc_table(cv, _split_csv(d.get('returnItems')), 507, 597)
+    _ret_raw  = str(d.get('returnItems') or '')
+    ret_items = _with_qty(_split_items(_ret_raw) if '\n' in _ret_raw else _split_csv(_ret_raw))
+    ret_done  = _draw_doc_table(cv, ret_items, 507, 597)
 
     # ── สถานที่: แบ่งช่องแยก (t=601–677) ────────────────────────────────────
-    _accent_bar(cv, 601)
+    _accent_bar(cv, 604)
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
-    cv.drawString(LX, Y(601), 'สถานที่ ส่งงาน-รับงาน:')
+    cv.drawString(LX, Y(604), 'สถานที่ ส่งงาน-รับงาน:')
 
     # บริษัท / สถานที่ (t=619)
     _loc_field(cv, LX + 8, 619, 'บริษัท / สถานที่ :',
@@ -657,14 +689,19 @@ def generate_messenger_pdf(data):
     _loc_field(cv, CT_MID + 2, T_CT, 'โทร :',
                _s(d.get('locationPhone', d.get('contactPhone'))))
 
+    if remarks:
+        lw_r = cv.stringWidth('หมายเหตุ :', F, FS_LBL)
+        _loc_field(cv, LX + 8, T_CT + 19, 'หมายเหตุ :',
+                   wrap_text(lambda t: cv.stringWidth(t, F, FS_DAT), remarks, RX - (LX + 8 + lw_r + 4) - 4, 1)[0])
+
     # Separator before signature section
-    _sep(cv, 698, color=C_BAND_BDR, lw=1.0)
+    _sep(cv, 698 + SHIFT, color=C_BAND_BDR, lw=1.0)
 
     # ── Signature section ─────────────────────────────────────────────────
     SIG_MID = 305
 
     # ผู้รับเอกสาร: t=712
-    T_SIG1 = 712
+    T_SIG1 = 712 + SHIFT
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     lbl_recv = 'ผู้รับเอกสาร :'
     cv.drawString(LX, Y(T_SIG1), lbl_recv)
@@ -680,7 +717,7 @@ def generate_messenger_pdf(data):
     cv.setLineWidth(1.0)
 
     # ผู้สั่งงาน / วันที่สั่งงาน: t=740
-    T_SIG2 = 740
+    T_SIG2 = 740 + SHIFT
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     lbl_ord = 'ผู้สั่งงาน / วันที่สั่งงาน :'
     cv.drawString(LX, Y(T_SIG2), lbl_ord)
@@ -698,7 +735,7 @@ def generate_messenger_pdf(data):
     cv.setLineWidth(1.0)
 
     # ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น: t=768
-    T_SIG3 = 768
+    T_SIG3 = 768 + SHIFT
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     lbl_fin = 'ผู้สั่งงาน / วันที่ดำเนินงานเสร็จสิ้น :'
     cv.drawString(LX, Y(T_SIG3), lbl_fin)
@@ -712,7 +749,7 @@ def generate_messenger_pdf(data):
     cv.setLineWidth(1.0)
 
     # ผู้อนุมัติ: t=796
-    T_SIG4 = 796
+    T_SIG4 = 796 + SHIFT
     cv.setFont(F, FS_LBL); cv.setFillColor(C)
     lbl_apv = 'ผู้อนุมัติ :'
     cv.drawString(LX, Y(T_SIG4), lbl_apv)
@@ -724,9 +761,38 @@ def generate_messenger_pdf(data):
     # ── Footer ────────────────────────────────────────────────────────────
     cv.setFont(F, FS_FOOT); cv.setFillColor(CL)
     cv.drawCentredString(
-        PW / 2, 15,
+        PW / 2, 9,
         f"ใบสั่งงาน Messenger & Logistic — Contract Tracker Pro  |  Generated: {_tbe()}"
     )
+
+    # ── หน้าต่อ: รายการที่ไม่พอตารางหน้าแรก ──
+    rest = [('รายละเอียดของงานที่ให้ไปรับ-ส่ง (ต่อ)', job_items, job_done),
+            ('สิ่งที่นำกลับ (ต่อ)', ret_items, ret_done)]
+    while any(done < len(items) for _, items, done in rest):
+        cv.showPage()
+        cv.setFont(FB, FS_T); cv.setFillColor(C)
+        cv.drawCentredString(PW / 2, Y(63), 'ใบสั่งงาน Messenger & Logistic (ต่อ)')
+        cv.setStrokeColor(C_ACCENT); cv.setLineWidth(1.5)
+        cv.line(LX + 30, Y(73), RX - 30, Y(73)); cv.setLineWidth(1.0)
+        pr = _s(d.get('contractNumber'))
+        if pr:
+            cv.setFont(F, FS_LBL); cv.setFillColor(C)
+            cv.drawRightString(RX, Y(92), 'เลข PR : ' + pr)
+        t = 110
+        nxt = []
+        for title, items, done in rest:
+            if done < len(items) and t < 700:
+                _accent_bar(cv, t)
+                cv.setFont(FB, FS_LBL); cv.setFillColor(C)
+                cv.drawString(LX, Y(t), title)
+                remaining = items[done:]
+                rows_here = int((780 - (t + 13) - 20) / 16)
+                t_end = t + 13 + 20 + 16 * min(len(remaining) + (1 if len(remaining) > rows_here else 0), rows_here)
+                n = _draw_doc_table(cv, remaining, t + 13, t_end, start_no=done + 1)
+                done += n
+                t = t_end + 22
+            nxt.append((title, items, done))
+        rest = nxt
 
     cv.save()
     buf.seek(0)

@@ -49,7 +49,7 @@ from datetime import datetime
 from flask import request, jsonify
 from template_utils import (
     merge_on_template, html_to_pdf, build_css, build_html,
-    fmt, fmt_date_th, sig_closing
+    fmt, fmt_date_th, sig_closing, justify_html
 )
 
 # ★ v2 — import signature/stamp helper
@@ -236,7 +236,8 @@ def _build_general_letter_html(data):
     else:
         paras = ['(กรุณาระบุเนื้อหา)']
 
-    para_html = [f'  <p class="para">{_esc(p)}</p>' for p in paras]
+    # จัดชิดขอบสองด้านแบบกระจายที่รอยต่อคำไทย (ดู template_utils.justify_html)
+    para_html = [f'  <p class="para">{justify_html(_esc(p))}</p>' for p in paras]
     body_html = '\n'.join(para_html)
 
     # ─────────────────────────────────────────────────────────────────
