@@ -18,7 +18,7 @@ from datetime import datetime
 from flask import request, jsonify
 from template_utils import (
     merge_on_template, html_to_pdf, font_face_css, checkbox_svg,
-    BODY_PT, TITLE_PT, SMALL_PT
+    BODY_PT, TITLE_PT, SMALL_PT, lh
 )
 
 logger = logging.getLogger(__name__)
@@ -136,7 +136,7 @@ def _build_request_doc_html(data):
             font-family: 'THSarabunNew', sans-serif;
             font-size: {BODY_PT}pt;
             color: #1a202c;
-            line-height: 1.8;
+            line-height: {lh(1.8)};
         }}
         .page {{ position: relative; }}
 
@@ -168,7 +168,7 @@ def _build_request_doc_html(data):
         }}
         table.company-grid {{ width: 100%; border-collapse: collapse; margin-bottom: 3mm; }}
         table.company-grid td {{ width: 50%; vertical-align: top; padding: 0; }}
-        .company-item {{ line-height: 1.7; }}
+        .company-item {{ line-height: {lh(1.7)}; }}
         svg.cbx {{ vertical-align: -0.6mm; margin-right: 1.5mm; }}
 
         /* ── Info block ── */
@@ -205,7 +205,7 @@ def _build_request_doc_html(data):
             border: 0.5pt solid #a0aec0;
             padding: 0.2mm 2mm;
             vertical-align: middle;
-            line-height: 1.62;
+            line-height: {lh(1.62)};
         }}
         .doc-table .cb-cell {{
             width: 6.5mm;
@@ -239,7 +239,7 @@ def _build_request_doc_html(data):
             text-align: center;
             font-size: {SMALL_PT}pt;
             color: #4a5568;
-            line-height: 1.6;
+            line-height: {lh(1.6)};
         }}
     """
 
@@ -272,12 +272,9 @@ def _build_request_doc_html(data):
                 doc_rows += '<td colspan="4"></td>'
         doc_rows += '</tr>'
 
-    # ที่อยู่บริษัทท้ายฟอร์ม — พิมพ์เฉพาะเมื่อไม่ได้ซ้อนบนหัวกระดาษของบริษัท (หัวกระดาษมีแถบที่อยู่อยู่แล้ว
-    # เดิมบรรทัดนี้ถูกดันไปหน้า 2 แล้วถูกตัดทิ้งตอนซ้อนหัวกระดาษ)
-    footer_html = '' if entity_key else """<div class="footer-line">
-        บริษัท เอส ซี เอ็ม เทคโนโลจีส จำกัด (สำนักงานใหญ่) เลขที่ 92/54-55 ชั้น 19 อาคารสาธรธานี 2 ถนน สาทรเหนือ แขวง สีลม<br>
-        เขต บางรัก กรุงเทพฯ 10500 โทรศัพท์ : +66 (0) 2 116 4312
-    </div>"""
+    # ที่อยู่บริษัทอยู่ในแถบท้ายหัวกระดาษของบริษัท (ซ้อนเมื่อรู้ว่าเป็นบริษัทใด)
+    # เดิมเมื่อไม่รู้บริษัท ฟอร์มพิมพ์ที่อยู่ของ SCM Technologies ที่ฝังในโค้ดแทน — เอาออก (บริการนี้ไม่เก็บที่อยู่บริษัทเอง)
+    footer_html = ''
 
     # ── Build body ──
     body = f"""<div class="page">

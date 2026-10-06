@@ -39,7 +39,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
 
 from messenger_images import SCM_LOGO_B64, SCM_WATERMARK_B64
-from template_utils import th_pt, wrap_text
+from template_utils import th_pt, th_box, wrap_text
 
 logger = logging.getLogger(__name__)
 
@@ -96,12 +96,13 @@ PW, PH = A4            # 595.276 x 841.890
 F       = 'S'          # THSarabunNew regular
 FB      = 'SB'         # THSarabunNew bold
 
-# ขนาดตัวอักษร — TH Sarabun New 14 แบบ Word ทั้งฟอร์ม (th_pt แปลงเป็น pt ของไฟล์ฟอนต์นี้ ดู template_utils)
+# ขนาดตัวอักษร — TH Sarabun New 14 แบบ Word ทั้งฟอร์ม (กำหนดผ่าน th_pt ดู template_utils)
 # เดิม: ป้าย 12 (= 18.4 ใน Word) ค่าที่กรอก 10 (= 15.3) ตาราง 9.5 (= 14.5) ชื่อฟอร์ม 16 (= 24.5)
 FS_T   = th_pt(16)     # title
 FS_LBL = th_pt(14)     # label
 FS_DAT = th_pt(14)     # data value
-FS_DOT = 10            # dots
+FS_DOT = 15.3          # dots (เส้นประของช่องกรอก — ขนาดจุดเท่าเดิม)
+BOX_DAT = th_box(14)   # ความสูงตัวอักษรโดยประมาณของข้อมูล — ใช้กำหนดแถบพื้นขาวหลังข้อความ
 FS_FOOT = th_pt(8)     # footer (ข้อความขอบกระดาษ)
 CHK_SZ = 11            # ขนาดช่องตัวเลือก
 
@@ -194,7 +195,7 @@ def _flines(cv, text, yt_list, first_line_x=None):
         if i < len(lines) and lines[i]:
             tw = cv.stringWidth(lines[i], F, FS_DAT)
             cv.setFillColor(white)
-            cv.rect(cx - 1, Y(yt) - 2, tw + 4, FS_DAT + 3, fill=1, stroke=0)
+            cv.rect(cx - 1, Y(yt) - 2, tw + 4, BOX_DAT + 3, fill=1, stroke=0)
             cv.setFont(F, FS_DAT)
             cv.setFillColor(CF)
             cv.drawString(cx, Y(yt) + 1, lines[i])
@@ -276,7 +277,7 @@ def _vdots(cv, x, yt, val, end_x):
     zone = end_x - x
     vx   = x + (zone - vw) / 2
     cv.setFillColor(white)
-    cv.rect(vx - 2, Y(yt) - 2, vw + 4, FS_DAT + 4, fill=1, stroke=0)
+    cv.rect(vx - 2, Y(yt) - 2, vw + 4, BOX_DAT + 4, fill=1, stroke=0)
     cv.setFont(F, FS_DAT)
     cv.setFillColor(CF)
     cv.drawString(vx, Y(yt), val)
@@ -310,7 +311,7 @@ def _flines_inline(cv, text, label_t, label_lw, extra_yt_list):
         val0 = lines[0][1]
         vw0  = cv.stringWidth(val0, F, FS_DAT)
         cv.setFillColor(white)
-        cv.rect(dot_x1_first, Y(label_t) - 3, vw0 + 4, FS_DAT + 4, fill=1, stroke=0)
+        cv.rect(dot_x1_first, Y(label_t) - 3, vw0 + 4, BOX_DAT + 4, fill=1, stroke=0)
         cv.setFont(F, FS_DAT); cv.setFillColor(CF)
         cv.drawString(dot_x1_first + 2, Y(label_t), val0)
 
@@ -321,7 +322,7 @@ def _flines_inline(cv, text, label_t, label_lw, extra_yt_list):
             val = rest_vals[i]
             tw  = cv.stringWidth(val, F, FS_DAT)
             cv.setFillColor(white)
-            cv.rect(LX - 1, Y(yt) - 2, tw + 4, FS_DAT + 3, fill=1, stroke=0)
+            cv.rect(LX - 1, Y(yt) - 2, tw + 4, BOX_DAT + 3, fill=1, stroke=0)
             cv.setFont(F, FS_DAT); cv.setFillColor(CF)
             cv.drawString(LX, Y(yt) + 1, val)
 
@@ -381,7 +382,7 @@ def _draw_doc_table(cv, items, t_start, t_end, start_no=1, more=0):
     cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.6)
     cv.rect(LX, h_bot, RX - LX, HEADER_H, fill=0, stroke=1)
 
-    hdr_text_y = h_bot + (HEADER_H - FS_TBL) / 2
+    hdr_text_y = h_bot + (HEADER_H - BOX_DAT) / 2
     cv.setFont(FB, FS_TBL); cv.setFillColor(C_ACCENT)
 
     lbl_n = 'ลำดับ'
@@ -403,7 +404,7 @@ def _draw_doc_table(cv, items, t_start, t_end, start_no=1, more=0):
     for i in range(max_rows):
         r_bot = Y(t_start + HEADER_H + (i + 1) * ROW_H)
         r_top = r_bot + ROW_H
-        text_y = r_bot + (ROW_H - FS_TBL) / 2
+        text_y = r_bot + (ROW_H - BOX_DAT) / 2
         max_w = COL_QTY - COL_NUM - 12
 
         if i < len(row_items):
@@ -613,7 +614,7 @@ def generate_messenger_pdf(data):
     cv.setFont(FB, FS_LBL); cv.setFillColor(C)
     cv.drawString(LX, Y(T_MSG), lbl_msg)
     lw_msg = cv.stringWidth(lbl_msg, FB, FS_LBL)
-    nm_val = _s(d.get('messengerName', 'พี่วุฒ'))
+    nm_val = _s(d.get('messengerName', ''))   # ค่าเริ่มต้นมาจาก web app (หน้า Admin)
     val_nm_x = LX + lw_msg + 8
     # clean underline line
     cv.setStrokeColor(C_BAND_BDR); cv.setLineWidth(0.5)
@@ -675,7 +676,7 @@ def generate_messenger_pdf(data):
             cv.setLineWidth(1.0)
             rw = cv.stringWidth(rest, F, FS_DAT)
             cv.setFillColor(white)
-            cv.rect(LX + 8, Y(658) - 2, rw + 4, FS_DAT + 3, fill=1, stroke=0)
+            cv.rect(LX + 8, Y(658) - 2, rw + 4, BOX_DAT + 3, fill=1, stroke=0)
             cv.setFont(F, FS_DAT); cv.setFillColor(CF)
             cv.drawString(LX + 8, Y(658), rest)
     else:

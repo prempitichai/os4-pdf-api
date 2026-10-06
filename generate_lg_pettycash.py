@@ -25,7 +25,7 @@ from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-from template_utils import th_pt, wrap_text
+from template_utils import th_pt, wrap_text, company_name
 
 logger = logging.getLogger(__name__)
 
@@ -81,112 +81,22 @@ def _register_fonts():
     _FONT_REG = True
 
 
-# ── SHARED ADDRESS (ทุก entity ใช้ที่อยู่เดียวกัน) ───────────────────────────────
-_SCM_ADDR = {
-    'address': '92/41 อาคารสาธรธานี 2 ชั้นที่ 15 ถนนสาทรเหนือ แขวงสีลม เขตบางรัก กรุงเทพมหานคร 10500',
-    'phone':   '02-116-4312, 02-116-4213',
-    'fax':     '02-235-3699',
-    # taxId ไม่รวมที่นี่ — แต่ละ entity มีเลขต่างกัน (ดูใน _ENTITY_MAP)
-}
-
-# ── ENTITY MAP — แปลง entity key → company info ─────────────────────────────────
-# entity key = lowercase + no space (ตรงกับที่ GAS ส่งมาใน field 'entity')
-# ที่อยู่/โทร/fax ใช้ร่วมกันทุก entity — taxId แยกในแต่ละ entity
-# ── TIN จาก Companies sheet (ภาพ 20/03/2569) ─────────────────────────────────
-# row 2: บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด          → 0105552095731  (SCM Tech หลัก)
-# row 3: บริษัท เอสซีเอ็ม เอส เทคโนโลจีส์ จำกัด         → 0105562133562
-# row 4: บริษัท เอสซีเอ็ม ซี เทคโนโลจีส์ จำกัด           → 0105563004553
-# row 5: บริษัท เอสซีเอ็ม ไซเบอร์ จำกัด                   → 0105567042204
-# row 6: บริษัท เอสซีเอ็ม บิซิเนส คอนเนคท์ จำกัด          → 0105568091021
-# row 7: บริษัท เอสซีเอ็ม บีทูบี จำกัด                     → 0105569003087
-# row 8: บริษัท ฟ้าคลาวด์ อินโนเทค จำกัด                   → 0105569004881
-_ENTITY_MAP = {
-    # entity key (lowercase, no space) → companyName + TIN
-    'scmtech':  {
-        'companyName':   'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด',
-        'companyNameEn': 'SCM Technologies Co., Ltd.',
-        'taxId':         '0105552095731',
-    },
-    'scms':     {
-        'companyName':   'บริษัท เอสซีเอ็ม เอส เทคโนโลจีส์ จำกัด',
-        'companyNameEn': 'SCM S Technologies Co., Ltd.',
-        'taxId':         '0105562133562',
-    },
-    'scmc':     {
-        'companyName':   'บริษัท เอสซีเอ็ม ซี เทคโนโลจีส์ จำกัด',
-        'companyNameEn': 'SCM C Technologies Co., Ltd.',
-        'taxId':         '0105563004553',
-    },
-    'holding':  {
-        'companyName':   'บริษัท เอสซีเอ็ม โฮลดิ้ง จำกัด',
-        'companyNameEn': 'SCM Holding Co., Ltd.',
-        # taxId: ไม่ hardcode — ดึงจาก Companies sheet ผ่าน GAS เสมอ
-        # ถ้า GAS ไม่ส่งมา → fallback _SCM_ADDR ซึ่งไม่มี taxId → คืน '-'
-    },
-    'cyber':    {
-        'companyName':   'บริษัท เอสซีเอ็ม ไซเบอร์ จำกัด',
-        'companyNameEn': 'SCM Cyber Co., Ltd.',
-        'taxId':         '0105567042204',
-    },
-    'bc':       {
-        'companyName':   'บริษัท เอสซีเอ็ม บิซิเนส คอนเนคท์ จำกัด',
-        'companyNameEn': 'SCM Business Connect Co., Ltd.',
-        'taxId':         '0105568091021',
-    },
-    'b2b':      {
-        'companyName':   'บริษัท เอสซีเอ็ม บีทูบี จำกัด',
-        'companyNameEn': 'SCM B2B Co., Ltd.',
-        'taxId':         '0105569003087',
-    },
-    'fahcloud': {
-        'companyName':   'บริษัท ฟ้าคลาวด์ อินโนเทค จำกัด',
-        'companyNameEn': 'Fahcloud Innotech Co., Ltd.',
-        'taxId':         '0105569004881',
-    },
-}
-
-# DEFAULT = SCM Technologies (ถ้าไม่ระบุ entity)
-# _SCM_DEFAULT: ใช้เป็น last-resort fallback (address/phone/fax เท่านั้น)
-# ★ ไม่รวม taxId — เพื่อกัน entity ที่ไม่มี taxId ใน map ได้รับ TIN ผิด
-_SCM_DEFAULT = {
-    **_SCM_ADDR,                          # address, phone, fax
-    **_ENTITY_MAP['scmtech'],             # companyName, companyNameEn ของ default
-    # taxId: จงใจไม่ใส่ที่นี่ → ถ้าหาไม่ได้จากทุก source จะคืน '-'
-}
-# ลบ taxId ออกจาก _SCM_DEFAULT เพื่อไม่ให้ entity ที่ไม่มี TIN ใน map ได้ TIN ผิด
-_SCM_DEFAULT.pop('taxId', None)
-
-def _resolve_entity(data):
-    """
-    แปลง entity field เป็น company info dict
-    Priority: data['entity'] → _ENTITY_MAP → scmtech (default)
-    รองรับ: 'scmtech', 'SCM Tech', 'SCMTECH' (normalize ก่อน lookup)
-    """
-    raw  = str(data.get('entity') or '').lower().replace(' ', '')
-    info = _ENTITY_MAP.get(raw, _ENTITY_MAP['scmtech'])
-    # merge: _SCM_ADDR (address/phone/fax) + entity info (companyName/taxId)
-    # entity info อยู่ด้านขวา → override _SCM_ADDR ถ้า key ซ้ำ
-    return {**_SCM_ADDR, **info}
-
+# ── ข้อมูลบริษัทของหัวฟอร์ม ─────────────────────────────────────────────────────
 def _co(data, key):
-    """
-    ดึงค่า company info ตาม entity
-    Priority:
-      1. data[key]          — GAS ส่งมาโดยตรง (สูงสุด)
-      2. _resolve_entity()  — จาก _ENTITY_MAP ตาม entity key
-      3. _SCM_DEFAULT       — fallback สุดท้าย (ไม่มี taxId)
-      4. '-'                — ค่าว่าง
-    """
-    # 1. GAS ส่งมาโดยตรง → ใช้เลย
+    """ข้อมูลบริษัทของหัวฟอร์ม — web app ส่งมาใน payload (หน้า Admin → แท็บ "บริษัท" ของ CONTRACT Tracker)
+    ไม่ได้ส่งมา: ชื่อ / ชื่ออังกฤษ ใช้ชื่อสำรองตามรหัสบริษัท (data['entity']) ; ช่องอื่น → '-'
+    (บริการนี้ไม่เก็บที่อยู่ / เบอร์โทร / เลขผู้เสียภาษีของบริษัทเอง — ดู template_utils.GROUP_COMPANIES)
+    entity = 'none' = ชื่อบริษัทที่ผู้ใช้พิมพ์เองในฟอร์ม → ไม่ใช้ชื่อสำรอง"""
     v = data.get(key)
     if v and str(v).strip():
         return str(v).strip()
-    # 2. ดึงจาก entity map
-    entity_info = _resolve_entity(data)
-    if key in entity_info and entity_info[key]:
-        return str(entity_info[key]).strip()
-    # 3. fallback _SCM_DEFAULT (ไม่มี taxId → ป้องกันคืน TIN ผิด)
-    return str(_SCM_DEFAULT.get(key, '-'))
+    ent = str(data.get('entity') or '').strip().lower()
+    if ent != 'none':
+        if key == 'companyName':
+            return company_name(ent)
+        if key == 'companyNameEn':
+            return company_name(ent, english=True)
+    return '-'
 
 # ── PAGE (Landscape A4) ───────────────────────────────────────────────────────
 L_W, L_H = landscape(A4)    # 841.89 x 595.28 pt
@@ -206,7 +116,7 @@ CRA  = HexColor('#f5f5ff')
 F  = 'THSarabunNew'
 FB = 'THSarabunNew-Bold'
 
-# ── ขนาดตัวอักษร — TH Sarabun New 14 แบบ Word ทั้งฟอร์ม (th_pt แปลงเป็น pt ของไฟล์ฟอนต์นี้ ดู template_utils) ──
+# ── ขนาดตัวอักษร — TH Sarabun New 14 แบบ Word ทั้งฟอร์ม (กำหนดผ่าน th_pt ดู template_utils) ──
 # เดิมแต่ละจุดใช้ 7–14 (= 10.7–21.4 ใน Word)
 S16 = th_pt(16)   # ชื่อบริษัท / ชื่อฟอร์ม / ยอดรวม
 S14 = th_pt(14)   # ข้อความทั้งหมด

@@ -116,22 +116,6 @@ def _register_fonts_once():
 _register_fonts_once()
 
 # ============================================================
-# DEFAULT COMPANY INFO
-# ============================================================
-_SCM_DEFAULT = {
-    'companyName':   'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด',
-    'companyNameEn': 'S C M Technologies Co., Ltd.',
-    'address':       '92/54-55 อาคารสาธรธานี 2 ชั้นที่ 19 ถนนสาทรเหนือ แขวงสีลม เขตบางรัก กรุงเทพมหานคร 10500',
-    'phone':         '02-116-4312, 02-116-4213',
-    'fax':           '02-235-3699',
-    'taxId':         '0105552095731',
-}
-
-def _co(d, key):
-    v = d.get(key, '')
-    return str(v).strip() if v and str(v).strip() else _SCM_DEFAULT.get(key, '')
-
-# ============================================================
 # CONFIG
 # ============================================================
 TEMPLATE_PATH = os.environ.get('OS4_TEMPLATE', './os4_blank.pdf')
@@ -417,6 +401,9 @@ def build_fields(d):
     return fields
 
 
+_OS4_PT = {9: 14, 8: 12, 7: 11}
+
+
 def create_pdf(data):
     """สร้าง PDF อ.ส.4 โดย overlay ข้อมูลบน template"""
     if _TEMPLATE_MISSING:
@@ -432,8 +419,10 @@ def create_pdf(data):
     c = canvas.Canvas(packet, pagesize=(pw, ph))
 
     for f in fields:
+        # 'fs' ของช่องเป็น "หน่วยตำแหน่ง" ของแบบฟอร์ม (9 / 8 / 7 — ใช้คำนวณ y ให้ลงช่องของแบบ อ.ส.4)
+        # ขนาดตัวอักษรจริง: 9 → 14 , 8 → 12 , 7 → 11 (TH Sarabun New ; เดิมไฟล์ฟอนต์รุ่นขยายให้ 13.8 / 12.2 / 10.7)
         fs = f['fs']
-        c.setFont(THAI_FONT, fs)
+        c.setFont(THAI_FONT, _OS4_PT.get(fs) or round(fs * 1.53, 1))
         y = ph - f['y_top'] - fs + (3 if f.get('centered') else 6)
         if f.get('centered'):
             c.drawCentredString(f['x'], y, f['text'])
@@ -465,8 +454,8 @@ _FIELD_BG = _HC('#f7f9fc'); _FIELD_BD = _HC('#d0d5dd')
 _W = white; _B = black; _TF = THAI_FONT
 
 # ขนาดตัวอักษรของ BG Delivery Form — TH Sarabun New 14 แบบ Word ทั้งฟอร์ม
-# (th_pt แปลงเป็น pt ของไฟล์ฟอนต์นี้ ดู template_utils ; เดิมใช้ 6–10 = 9–15 ใน Word)
-from template_utils import th_pt as _th_pt, wrap_text as _wrap_text
+# (กำหนดผ่าน th_pt ดู template_utils — ขนาดในโค้ด = ขนาดใน Word และที่โปรแกรม PDF รายงาน)
+from template_utils import th_pt as _th_pt, th_box as _th_box, wrap_text as _wrap_text, company_name as _company_name
 _S14 = _th_pt(14)
 _S16 = _th_pt(16)
 
@@ -539,7 +528,7 @@ def _bg_field(c, x, y, w, h, text='', fs=None):
             if sp > len(t) * 0.5:
                 t = t[:sp]
             t = t + '…'
-        c.drawString(x + 3, y + (h - fs) / 2, t)
+        c.drawString(x + 3, y + (h - _th_box(fs)) / 2, t)
     c.setFillColor(_B)
 
 
@@ -607,9 +596,10 @@ def _create_bg_delivery_pdf(d):
     # [BG-v7 #1+5+6] Format จำนวนเงินครั้งเดียวที่นี่ — ใช้ซ้ำทุกจุด
     bgv = _bg_fmt_money(d.get('bgValue', ''))
     bge = d.get('bgExpiry', '');      cpy = d.get('counterparty', '');    po  = d.get('poNumber', '')
-    own = d.get('projectOwner', '');  bnk = d.get('bankName', 'ธนาคารกสิกรไทย')
-    bbr = d.get('bankBranch', 'สาขานราธิวาสราชนครินทร์')
-    chd = d.get('companyForHeader') or _SCM_DEFAULT['companyName']
+    # ธนาคาร / สาขา / ชื่อบริษัท มาจาก web app (ค่าเริ่มต้นกำหนดที่หน้า Admin) — ไม่ได้รับ = เว้นว่าง
+    own = d.get('projectOwner', '');  bnk = d.get('bankName') or ''
+    bbr = d.get('bankBranch') or ''
+    chd = d.get('companyForHeader') or _company_name(d.get('entity') or d.get('entityKey') or '')
     gcat  = d.get('guaranteeCategory', 'contract')
     ptype = d.get('paymentType', 'bank_lg')
     td    = d.get('thaiDay', '');   tm  = d.get('thaiMonth', '');  tyr = d.get('thaiYear', '')

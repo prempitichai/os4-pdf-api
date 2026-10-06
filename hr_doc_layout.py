@@ -15,7 +15,7 @@ hr_doc_layout.py — โครงหน้าร่วมของ "หนัง
 import re
 
 from template_utils import (
-    BODY_PT, TITLE_PT, SMALL_PT, font_face_css, page_head_css, merge_on_template, checkbox_svg,
+    BODY_PT, TITLE_PT, SMALL_PT, lh as lh_ratio, font_face_css, page_head_css, merge_on_template, checkbox_svg,
     justify_css, justify_html, nowrap_tokens
 )
 
@@ -24,6 +24,8 @@ FRAME = False
 
 # ระยะบรรทัด (pt จริง): ปกติ ≈ บรรทัดเดี่ยวของ TH Sarabun New 14 ใน Word ; compact สำหรับสัญญาที่ข้อความยาว
 _LINE_PT = {False: 18, True: 17.5}
+# ระยะเพิ่มระหว่างข้อความสุดท้ายกับช่องลงนามแถวแรก (ผู้ใช้ขอให้ห่างขึ้น 2026-10-06 — เดิม 1mm ชื่อผู้ลงนามคนแรกชิดข้อความเกินไป)
+SIGN_GAP = '9mm'
 
 
 def esc(s):
@@ -87,7 +89,7 @@ def build_css(doc_number='', compact=False, frame=None):
     /* ช่องข้อมูล: ป้าย + ค่าบนเส้นประ */
     .fieldset { margin: 0 0 2mm; page-break-inside: avoid; }
     table.fields { width: 100%%; border-collapse: collapse; }
-    table.fields td { padding: 0.6mm 2mm 0; vertical-align: bottom; line-height: 1.6; }
+    table.fields td { padding: 0.6mm 2mm 0; vertical-align: bottom; line-height: %(lh16)s; }
     table.fields td.lbl { font-weight: bold; white-space: nowrap; width: 1%%; padding-left: 0; padding-right: 2.5mm; }   /* ป้ายกว้างเท่าข้อความ ไม่ล้นทับค่า */
     table.fields td.val + td.lbl { padding-left: 5mm; }
     table.fields td.val { border-bottom: 0.6pt dotted #777; word-wrap: break-word; }
@@ -101,9 +103,10 @@ def build_css(doc_number='', compact=False, frame=None):
     .cl b { margin-right: 1.5mm; }
     .sub  { margin: 0 0 %(gap)s 12mm; padding-left: 6.8mm; text-indent: -6.8mm; }
 
-    /* ช่องลงนาม: เว้นที่เหนือเส้นให้ลงลายมือชื่อ ; สองคอลัมน์ห่างกันชัดเจน */
-    table.sign { width: 100%%; border-collapse: collapse; margin-top: 1mm; page-break-inside: avoid; }
-    table.sign td { width: 50%%; padding: %(sgtop)s 0 0; vertical-align: top; line-height: 1.6; }
+    /* ช่องลงนาม: เว้นที่เหนือเส้นให้ลงลายมือชื่อ ; สองคอลัมน์ห่างกันชัดเจน
+       margin-top = ระยะเพิ่มระหว่างข้อความสุดท้ายกับช่องลงนามแถวแรก (SIGN_GAP) */
+    table.sign { width: 100%%; border-collapse: collapse; margin-top: %(sggap)s; page-break-inside: avoid; }
+    table.sign td { width: 50%%; padding: %(sgtop)s 0 0; vertical-align: top; line-height: %(lh16)s; }
     table.sign td[colspan] { width: 100%%; }
     .sg      { width: 66mm; margin: 0 auto; }
     .sg-row  { white-space: nowrap; }
@@ -112,7 +115,7 @@ def build_css(doc_number='', compact=False, frame=None):
     .sg-name { margin-left: 11mm; width: 55mm; text-align: center; padding-top: 0.3mm; }
     .sg-role { margin-left: 11mm; width: 55mm; text-align: center; }
     """ % {'head': page_head_css(doc_number), 'margin': page_margin, 'small': SMALL_PT, 'pt': BODY_PT, 'lh': lh,
-           'frame_css': frame_css, 'gap': '1.6mm' if compact else '2.4mm', 'sgtop': '8.5mm' if compact else '9.5mm',
+           'frame_css': frame_css, 'gap': '1.6mm' if compact else '2.4mm', 'sgtop': '8.5mm' if compact else '9.5mm', 'sggap': SIGN_GAP, 'lh16': lh_ratio(1.6),
            # ย่อหน้า / ข้อสัญญา / ข้อย่อย จัดชิดขอบสองด้าน (กระจายที่รอยต่อคำไทย)
            'justify': justify_css('p, .cl, .sub')}
 

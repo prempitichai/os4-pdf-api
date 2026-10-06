@@ -49,7 +49,8 @@ from datetime import datetime
 from flask import request, jsonify
 from template_utils import (
     merge_on_template, html_to_pdf, build_css, build_html,
-    fmt, fmt_date_th, sig_closing, justify_html
+    fmt, fmt_date_th, sig_closing, justify_html,
+    company_name,
 )
 
 # ★ v2 — import signature/stamp helper
@@ -60,31 +61,6 @@ from signature_stamp import (
 )
 
 logger = logging.getLogger(__name__)
-
-# ══════════════════════════════════════════════════════════════════════
-# ENTITY DEFAULTS
-# ══════════════════════════════════════════════════════════════════════
-_ENTITY_NAME_MAP = {
-    'scm t':    'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด',
-    'scmtech':  'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด',
-    'scm s':    'บริษัท เอส ซี เอ็ม เอส เทคโนโลจีส์ จำกัด',
-    'scms':     'บริษัท เอส ซี เอ็ม เอส เทคโนโลจีส์ จำกัด',
-    'scm c':    'บริษัท เอส ซี เอ็ม ซี เทคโนโลจีส์ จำกัด',
-    'scmc':     'บริษัท เอส ซี เอ็ม ซี เทคโนโลจีส์ จำกัด',
-    'cyber':    'บริษัท เอส ซี เอ็ม ไซเบอร์ จำกัด',
-    'bc':       'บริษัท เอส ซี เอ็ม บิสิเนส คอนเนค จำกัด',
-    'b2b':      'บริษัท เอส ซี เอ็ม บีทูบี จำกัด',
-    'holding':  'บริษัท เอส ซี เอ็ม โฮลดิ้ง จำกัด',
-    'fahcloud': 'บริษัท ฟาห์คลาวด์ จำกัด',
-}
-
-_DEFAULT_ENTITY_NAME = 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'
-
-
-def _resolve_entity_name(entity_key):
-    """แปลง entity key → ชื่อบริษัทภาษาไทย"""
-    key = str(entity_key or '').lower().strip()
-    return _ENTITY_NAME_MAP.get(key, _DEFAULT_ENTITY_NAME)
 
 
 def _today_th():
@@ -166,7 +142,7 @@ def _build_general_letter_html(data):
     """สร้าง HTML หนังสือทั่วไป — ใช้ class จาก build_css() ของ template_utils"""
 
     entity_key = str(data.get('entityKey', '') or '')
-    entity_name = _pick(data, 'writtenAt') or _resolve_entity_name(entity_key)
+    entity_name = _pick(data, 'writtenAt') or company_name(entity_key)
 
     # ─────────────────────────────────────────────────────────────────
     # [S41 v3] Defense-in-Depth: รับ field ได้ทั้งชื่อเก่าและใหม่
@@ -191,7 +167,7 @@ def _build_general_letter_html(data):
 
     # signerName / signerPosition
     signer_name = _pick(data, 'signerName', 'companySignerName', 'signer1')
-    signer_pos = data.get('signerPosition', '') or 'Corporate Lawyers'
+    signer_pos = data.get('signerPosition', '') or ''   # ค่าเริ่มต้นมาจาก web app (หน้า Admin)
 
     # ─────────────────────────────────────────────────────────────────
     # [S41 v3] signature_key: รองรับทั้ง signatureKey โดยตรง

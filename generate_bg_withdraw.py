@@ -18,7 +18,7 @@ import base64, logging
 from flask import request, jsonify
 from template_utils import (
     merge_on_template, html_to_pdf, build_css, build_html,
-    fmt, fmt_date_th, sig_closing, sig_poa_line, justify_html, nowrap_tokens
+    fmt, fmt_date_th, sig_closing, sig_poa_line, justify_html, nowrap_tokens, company_name
 )
 
 # ★ v4 — import signature/stamp helper
@@ -70,12 +70,12 @@ def generate_bg_withdraw():
         bgd        = _esc(fmt_date_th(str(data.get('guaranteeIssueDate', '') or '')))
         bgv        = _esc(fmt(data.get('guaranteeValue', '')))
         signer     = _esc(data.get('signerName', '') or '')
-        spos       = _esc(data.get('signerPosition', 'Corporate Lawyers') or 'Corporate Lawyers')
+        spos       = _esc(data.get('signerPosition', '') or '')   # ค่าเริ่มต้นมาจาก web app (หน้า Admin)
         docnum_raw = str(data.get('docNumber', '') or cid)
         docnum     = _esc(docnum_raw)
         doc_date   = _esc(data.get('docDate', '') or '')
         entity     = data.get('entity') or {}
-        ename      = _esc(entity.get('name', 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'))
+        ename      = _esc((entity.get('name') or company_name(entity_key)))
         eshort     = ename
         entity_key = str(data.get('entityKey', '') or '')
 
@@ -96,7 +96,7 @@ def generate_bg_withdraw():
             stamp_key = None
 
         # ── สร้าง body paragraphs ──
-        ent_p = _name(entity.get('name', 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'))
+        ent_p = _name((entity.get('name') or company_name(entity_key)))
         co_p  = _name(data.get('company', '') or '')
         # ชื่อสัญญาที่ขึ้นต้นด้วย "สัญญา" อยู่แล้ว ไม่พิมพ์คำซ้ำ (เดิมได้ "ได้ทำสัญญาสัญญาจ้าง…")
         cname_p = cname[len('สัญญา'):] if cname.startswith('สัญญา') and len(cname) > len('สัญญา') else cname
@@ -182,11 +182,9 @@ def generate_bg_poa():
         while len(witnesses) < 2:
             witnesses.append({})
 
-        ename   = _esc(entity.get('name', 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'))
+        ename   = _esc((entity.get('name') or company_name(entity_key)))
         eshort  = ename
-        eaddr   = _esc(entity.get('address',
-            'ตั้งอยู่เลขที่ 92/54-55 อาคารสาธรธานี 2 ชั้น 19 ถนนสาทรเหนือ '
-            'แขวงสีลม เขตบางรัก กรุงเทพมหานคร'))
+        eaddr   = _esc((entity.get('address') or ''))
         gr_name = _esc(grantor.get('name', '') or '')
         gr_id   = _esc(grantor.get('idCard', '') or '')
         ge_name = _esc(grantee.get('name', '') or '')
@@ -209,10 +207,8 @@ def generate_bg_poa():
                 stamp_html = f'<img src="{uri}" style="width:{w_mm}mm; height:auto" alt="company stamp"/>'
 
         addr_part = f'ที่อยู่ {_name(grantee.get("address", "") or "")} ' if ge_addr else ''
-        ent_p   = _name(entity.get('name', 'บริษัท เอส ซี เอ็ม เทคโนโลจีส์ จำกัด'))
-        eaddr_p = _name(entity.get('address',
-            'ตั้งอยู่เลขที่ 92/54-55 อาคารสาธรธานี 2 ชั้น 19 ถนนสาทรเหนือ '
-            'แขวงสีลม เขตบางรัก กรุงเทพมหานคร'))
+        ent_p   = _name((entity.get('name') or company_name(entity_key)))
+        eaddr_p = _name((entity.get('address') or ''))
         body_default = (
             f'โดยหนังสือฉบับนี้ ข้าพเจ้า {ent_p} {eaddr_p} '
             f'โดย {_name(grantor.get("name", "") or "")} บัตรประชาชนเลขที่ {gr_id} '

@@ -153,7 +153,7 @@ def _img_to_base64_uri(path):
 # [MAIN HELPER] build_sig_closing_with_image (v6)
 # ═══════════════════════════════════════════════════════════════
 
-def build_sig_closing_with_image(signer, position='Corporate Lawyers',
+def build_sig_closing_with_image(signer, position='',
                                   signature_key=None, stamp_key=None):
     """
     สร้าง HTML block ลายเซ็นท้ายเอกสาร พร้อมใส่ภาพลายเซ็น + ตราประทับ
