@@ -469,18 +469,22 @@ def _pc_draw(cv, data, items, tp):
     pay_date   = _s(data.get('payDate', _tbe()))
     doc_ref    = _s(data.get('docRef'), '')
 
+    wht_rate   = _s(data.get('whtRate'), '')        # อัตราหักเมื่อทุกรายการหักอัตราเดียวกัน (GAS คำนวณ) ; ว่าง = ไม่พิมพ์ %
+    net_text   = _s(data.get('netText'), '')        # จำนวนเงินสุทธิเป็นตัวอักษร (GAS: _bahtText_)
+
     ta = sum(_pf(it.get('amount')) for it in items)
     tv = sum(_pf(it.get('vat'))    for it in items)
     tw = sum(_pf(it.get('wht'))    for it in items)
     tn = sum(_pf(it.get('net'))    for it in items)
 
     # ลำดับ | รหัสงาน | รายการ | เลขที่เอกสาร | รายจ่ายก่อนหักภาษี | ภาษีซื้อ | ภาษีหัก ณ ที่จ่าย | จำนวนเงินสุทธิ
-    pc_raw = [32, 56, 236, 78, 78, 60, 72, 78]
+    # เลขที่เอกสาร / รหัสงานกว้างขึ้น (เดิม 78 / 56 ถูกตัด '…') — คอลัมน์รายการแคบลง ความกว้างรวมเท่าเดิม
+    pc_raw = [32, 60, 206, 104, 78, 60, 72, 78]
     pc_sc  = CW / sum(pc_raw)
     pcw    = [w * pc_sc for w in pc_raw]
     row_h = 24; hdr_h = 32
     SIG_H = 58
-    closing_h = (22 + 10) + 34 + SIG_H * 2
+    closing_h = (22 + 10) + 34 + SIG_H * 2 + (16 if net_text else 0)
 
     st = {'page': 1, 'y': 0, 'rows': 0}
 
@@ -497,7 +501,7 @@ def _pc_draw(cv, data, items, tp):
             ('ลำดับ',), ('รหัสงาน',), ('รายการ',), ('เลขที่เอกสาร',),
             ('รายจ่ายก่อน', 'หักภาษี'),
             ('ภาษีซื้อ',),
-            ('ภาษีหัก ณ', 'ที่จ่าย (__%)'),
+            ('ภาษีหัก ณ', f'ที่จ่าย ({wht_rate}%)' if wht_rate else 'ที่จ่าย'),
             ('จำนวนเงิน', 'สุทธิ')
         ]
         cx = tx
@@ -522,7 +526,7 @@ def _pc_draw(cv, data, items, tp):
         _ln(cv, ML, y, pw-MR, y, CB, 0.5); y -= 14
         st['y'] = table_header(y)
 
-    def draw_row(item, rh, desc_lines):
+    def draw_row(item, rh, desc_lines, job_lines=None, doc_lines=None):
         y = st['y']; ry = y - rh
         bg = CRA if st['rows'] % 2 == 1 else None
         _rc(cv, tx, ry, CW, rh, fi=bg, st=CB2, sw=0.3)
@@ -534,11 +538,15 @@ def _pc_draw(cv, data, items, tp):
         if item:
             cx  = tx; tty = y - 15
             _tx(cv, cx + pcw[0]/2, tty, str(item.get('seq') or st['count'] + 1), F, S14, CT, 'center'); cx += pcw[0]
-            _tx(cv, cx + 3, tty, _trunc(cv, _s(item.get('jobCode'), ''), F, S14, pcw[1]-6), F, S14, CT); cx += pcw[1]
+            for li, ln in enumerate(job_lines or ['']):
+                _tx(cv, cx + 3, tty - li * LINE, ln, F, S14, CT)
+            cx += pcw[1]
             for li, ln in enumerate(desc_lines):
                 _tx(cv, cx + 3, tty - li * LINE, ln, F, S14, CT)
             cx += pcw[2]
-            _tx(cv, cx + 3, tty, _trunc(cv, _s(item.get('docNo'), ''), F, S14, pcw[3]-6), F, S14, CT); cx += pcw[3]
+            for li, ln in enumerate(doc_lines or ['']):
+                _tx(cv, cx + 3, tty - li * LINE, ln, F, S14, CT)
+            cx += pcw[3]
             _tx(cv, cx + pcw[4]-3, tty, _fmb(item.get('amount')), F, S14, CT, 'right'); cx += pcw[4]
             _tx(cv, cx + pcw[5]-3, tty, _fmb(item.get('vat')),    F, S14, CT, 'right'); cx += pcw[5]
             _tx(cv, cx + pcw[6]-3, tty, _fmb(item.get('wht')),    F, S14, CT, 'right'); cx += pcw[6]
@@ -609,12 +617,16 @@ def _pc_draw(cv, data, items, tp):
     for ri, item in enumerate(items):
         desc = _s(item.get('description'), '') if item.get('description') else ''
         desc_lines = _wrap(cv, desc, F, S14, pcw[2] - 6, 3) if desc else ['']
-        rh = max(row_h, 9 + len(desc_lines) * LINE)
+        job = _s(item.get('jobCode'), '')
+        doc = _s(item.get('docNo'), '')
+        job_lines  = _wrap(cv, job, F, S14, pcw[1] - 6, 2) if job else ['']
+        doc_lines  = _wrap(cv, doc, F, S14, pcw[3] - 6, 2) if doc else ['']
+        rh = max(row_h, 9 + max(len(desc_lines), len(job_lines), len(doc_lines)) * LINE)
         is_last_item = ri == len(items) - 1
         need = rh + (closing_h if is_last_item else 0)
         if st['y'] - need < _BOTTOM and st['rows'] > 0:
             new_page()
-        draw_row(item or {'seq': ri + 1}, rh, desc_lines)
+        draw_row(item or {'seq': ri + 1}, rh, desc_lines, job_lines, doc_lines)
         st['count'] += 1
 
     # แถวว่างให้เขียนเพิ่ม (รวมแล้วไม่เกิน 6 แถว) — เฉพาะเท่าที่หน้านี้ยังมีที่พอสำหรับส่วนปิดท้าย
@@ -638,6 +650,9 @@ def _pc_draw(cv, data, items, tp):
     _tx(cv, pw-MR-8, y-16,
         f"จำนวนเงินสุทธิ : {_fm(tn) if tn else '-'} บาท",
         FB, S16, CG, 'right')
+    if net_text:
+        _tx(cv, pw-MR-8, y-38, f"({net_text})", F, S14, CG, 'right')
+        y -= 16
     y -= 38
 
     # ── SIGNATURES (4 ช่อง 2x2) ──
