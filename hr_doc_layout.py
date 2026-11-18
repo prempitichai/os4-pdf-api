@@ -113,7 +113,19 @@ def build_css(doc_number='', compact=False, frame=None):
     .sg-pre  { display: inline-block; width: 11mm; }
     .sg-line { display: inline-block; width: 55mm; border-bottom: 0.6pt dotted #333; height: 5mm; }
     .sg-name { margin-left: 11mm; width: 55mm; text-align: center; padding-top: 0.3mm; }
+    .sg-name .bl { width: 46mm; }
     .sg-role { margin-left: 11mm; width: 55mm; text-align: center; }
+
+    /* ช่องว่างให้เขียนเองภายหลัง (ค่าที่ยังไม่กรอกตอนสร้าง) */
+    .bl      { display: inline-block; border-bottom: 0.6pt dotted #555; height: 1.05em; vertical-align: baseline; }
+
+    /* ที่ประทับตราบริษัท ข้างช่องลงนามของบริษัท */
+    .sg-wrap { display: flex; justify-content: center; align-items: flex-start; gap: 8mm; }
+    .sg-wrap .sg { margin: 0; }
+    .seal    { width: 30mm; height: 30mm; border: 0.8pt dashed #888; border-radius: 50%%; display: flex; align-items: center;
+               justify-content: center; text-align: center; color: #888; font-size: %(small)spt; line-height: 1.2; margin-top: -4mm; }
+    tr.seal-row td { padding-top: 3mm; }
+    tr.seal-row .seal { margin: 0 auto; }
     """ % {'head': page_head_css(doc_number), 'margin': page_margin, 'small': SMALL_PT, 'pt': BODY_PT, 'lh': lh,
            'frame_css': frame_css, 'gap': '1.6mm' if compact else '2.4mm', 'sgtop': '8.5mm' if compact else '9.5mm', 'sggap': SIGN_GAP, 'lh16': lh_ratio(1.6),
            # ย่อหน้า / ข้อสัญญา / ข้อย่อย จัดชิดขอบสองด้าน (กระจายที่รอยต่อคำไทย)
@@ -140,6 +152,12 @@ def paragraphs(text, cls=''):
     return '\n'.join('<p%s>%s</p>' % (c, esc(ln)) for ln in lines)
 
 
+def blank(value, width='30mm'):
+    """ค่าในย่อหน้า — ว่าง = เส้นประให้เขียนเองภายหลัง (เดิมว่างแล้วข้อความชิดกันไม่มีที่เขียน)"""
+    v = str('' if value is None else value).strip()
+    return esc(v) if v else '<span class="bl" style="width:%s"></span>' % width
+
+
 def fields(rows):
     """ช่องข้อมูล (ป้าย + ค่าบนเส้นประ) — rows = [[(ป้าย, ค่า), (ป้าย, ค่า, 'กว้าง')…], …] แถวละ 1–3 คู่
     แต่ละแถวจัดความกว้างของตัวเอง: ป้ายกว้างเท่าข้อความ ค่าได้ที่เหลือ (ระบุความกว้างของค่าเองได้ เช่น '16mm')
@@ -155,27 +173,38 @@ def fields(rows):
     return h + '</div>'
 
 
-def signatures(cells):
+SEAL_HTML = '<div class="seal">ประทับตรา<br>บริษัท</div>'
+
+
+def signatures(cells, seal=False):
     """ช่องลงนาม 2 คอลัมน์ — cells = [(ฐานะ, ชื่อ) | None, …] เรียงซ้าย→ขวา บน→ล่าง ; None = เว้นช่อง
-    แถวที่ว่างทั้งแถวถูกตัดออก"""
+    แถวที่ว่างทั้งแถวถูกตัดออก
+    seal = เว้นที่ประทับตราบริษัทให้แถวแรก (ผู้ลงนามฝ่ายบริษัท): คนเดียว → วงกลมข้างช่องลงนาม ; สองคน → แถวของวงกลมใต้ทั้งคู่"""
     def cell(c):
         if not c:
             return '<td></td>'
         role, name = c
         # มีชื่อ → (ชื่อ) ใต้เส้น ; ไม่มีชื่อ → ไม่ใส่วงเล็บว่าง (ตามที่ใช้มาเดิม)
-        nm = '<div class="sg-name">(%s)</div>' % esc(name) if str(name or '').strip() else ''
+        # ไม่มีชื่อ → วงเล็บพร้อมเส้นประให้เขียนชื่อเอง (เดิมไม่มีที่เขียนชื่อ)
+        nm = '<div class="sg-name">(%s)</div>' % (esc(name) if str(name or '').strip() else '<span class="bl"></span>')
         return ('<td><div class="sg"><div class="sg-row"><span class="sg-pre">ลงชื่อ</span><span class="sg-line"></span></div>'
                 '%s<div class="sg-role">%s</div></div></td>' % (nm, esc(role)))
-    h = '<table class="sign">'
+    h, first = '<table class="sign">', True
     for i in range(0, len(cells), 2):
         pair = list(cells[i:i + 2]) + [None] * (2 - len(cells[i:i + 2]))
         if not any(pair):
             continue
         if pair[0] and pair[1]:
             h += '<tr>' + cell(pair[0]) + cell(pair[1]) + '</tr>'
+            if seal and first:
+                h += '<tr class="seal-row"><td colspan="2">' + SEAL_HTML + '</td></tr>'
         else:
             # แถวที่มีผู้ลงนามคนเดียว → อยู่กึ่งกลาง (ไม่ทิ้งช่องว่างครึ่งแถว)
-            h += '<tr>' + cell(pair[0] or pair[1]).replace('<td>', '<td colspan="2">', 1) + '</tr>'
+            c = cell(pair[0] or pair[1])
+            if seal and first:
+                c = c.replace('<td><div class="sg">', '<td><div class="sg-wrap"><div class="sg">', 1).replace('</div></td>', '</div>' + SEAL_HTML + '</div></td>', 1)
+            h += '<tr>' + c.replace('<td>', '<td colspan="2">', 1) + '</tr>'
+        first = False
     return h + '</table>'
 
 

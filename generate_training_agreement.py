@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# VERSION: v10-sarabun14
+# VERSION: v11-blanks-seal
 """
 generate_training_agreement.py — สัญญาเข้าศึกษา / ฝึกอบรม / สอบ
 ═══════════════════════════════════════════════════════════════════
+
+★ v11 (2026-11-18): ค่าที่ยังไม่กรอก (วันที่ / ค่าใช้จ่าย / หลักสูตร / ชื่อผู้ลงนาม) = เส้นประให้เขียนเอง ;
+  แผนก / เลขประจำตัวประชาชน / อายุ มีที่เขียนพอ ; ที่อยู่ว่าง = 2 บรรทัด ; ที่ประทับตราบริษัทข้างช่องลงนามของบริษัท
 
 ★ v10 (2026-10): TH Sarabun New 14 (ขนาดแบบ Word) + ไม่มีเส้นกรอบ — กำหนดที่ hr_doc_layout / template_utils
 
@@ -21,7 +24,7 @@ import logging
 from flask import request, jsonify
 from template_utils import html_to_pdf
 from hr_doc_layout import (
-    esc as _esc, document, fields, nowrap, signatures, merge_multi_page
+    esc as _esc, blank, document, fields, nowrap, signatures, merge_multi_page
 )
 
 logger = logging.getLogger(__name__)
@@ -70,21 +73,22 @@ def _build_training_html(data):
 
     company, company_addr = nowrap(g('companyName')), nowrap(g('companyAddress'))
     emp_name = g('employeeName')
-    t_date, t_month, t_year = e(g('trainingDate')), e(g('trainingMonth')), e(g('trainingYear'))
-    t_cost     = e(_fmt_money(data.get('trainingCost', '')))
-    t_cost_txt = e(g('trainingCostText'))
-    c_date, c_month, c_year = e(g('contractDate')), e(g('contractMonth')), e(g('contractYear'))
+    # ค่าที่ยังไม่กรอกตอนสร้าง → เส้นประให้เขียนเองภายหลัง (v11)
+    t_date, t_month, t_year = blank(g('trainingDate'), '12mm'), blank(g('trainingMonth'), '26mm'), blank(g('trainingYear'), '14mm')
+    t_cost     = blank(_fmt_money(data.get('trainingCost', '')), '28mm')
+    t_cost_txt = blank(g('trainingCostText'), '55mm')
+    c_date, c_month, c_year = blank(g('contractDate'), '12mm'), blank(g('contractMonth'), '26mm'), blank(g('contractYear'), '14mm')
     co2 = g('companySignerName2')
 
     body = f"""
-<p class="flush lead"><b>หลักสูตร :</b> {e(g('courseName'))}</p>
+<p class="flush lead"><b>หลักสูตร :</b> {blank(g('courseName'), '120mm')}</p>
 <p>สัญญาฉบับนี้ทำขึ้นเมื่อวันที่ {c_date} เดือน {c_month} พ.ศ. {c_year} ระหว่าง {company} {company_addr} ซึ่งต่อไปนี้เรียกว่า <b>"บริษัทฯ"</b> ฝ่ายหนึ่งกับ</p>
 {fields([
     [('นาย / นาง / นางสาว', emp_name)],
-    [('ตำแหน่ง', g('employeePosition')), ('แผนก', g('employeeDepartment'))],
-    [('อายุ', g('employeeAge'), '14mm'), ('เลขประจำตัวประชาชน', g('employeeIdCard')), ('รหัสพนักงาน', g('employeeCode'))],
+    [('ตำแหน่ง', g('employeePosition'), '58%'), ('แผนก', g('employeeDepartment'))],
+    [('อายุ', g('employeeAge'), '16mm'), ('เลขประจำตัวประชาชน', g('employeeIdCard'), '50mm'), ('รหัสพนักงาน', g('employeeCode'))],
     [('ที่อยู่', g('employeeAddress'))],
-])}
+] + ([] if g('employeeAddress') else [[('', '')]]))}
 <p>ซึ่งต่อไปในสัญญาจะเรียกว่า <b>"พนักงาน"</b> อีกฝ่ายหนึ่ง</p>
 <div class="sec">ทั้งสองฝ่ายจึงได้ตกลงกันดังต่อไปนี้</div>
 <p class="cl"><b>ข้อ 1.</b> บริษัทฯ จะส่งพนักงานไปศึกษา / ฝึกอบรม / สอบตามหลักสูตร ในวันที่ {t_date} เดือน {t_month} พ.ศ. {t_year} โดยบริษัทฯ จะรับผิดชอบค่าใช้จ่ายเกี่ยวกับการฝึกอบรมในครั้งนี้เป็นจำนวนเงิน {t_cost} บาท ({t_cost_txt}) ทั้งนี้ ค่าใช้จ่ายดังกล่าวไม่เกี่ยวข้องกับเงินเดือนที่พนักงานได้รับจากบริษัทฯ</p>
@@ -108,7 +112,7 @@ def _build_training_html(data):
     ('หัวหน้างาน', g('supervisorName')),
     ('พยาน', g('witness1Name')),
     ('พยาน', g('witness2Name')),
-])}
+], seal=True)}
 </div>
 """
     return document('สัญญาเข้าศึกษา / ฝึกอบรม / สอบ', body, g('docNumber'), compact=True)
