@@ -36,6 +36,7 @@ Endpoints:
   POST /generate_bg_withdraw   → หนังสือขอถอนหลักประกัน
   POST /generate_bg_poa        → หนังสือมอบอำนาจ
   POST /generate_request_doc   → Request Company Document
+  POST /generate_power_of_attorney → หนังสือมอบอำนาจ (ทั่วไป)
   POST /generate_general_letter → หนังสือทั่วไป (General Letter)
   GET  /health                 → health check
 """
@@ -62,6 +63,7 @@ from generate_request_doc import register_request_doc_routes
 from generate_general_letter import register_general_letter_routes
 from generate_warning_letter import register_warning_letter_routes
 from generate_training_agreement import register_training_agreement_routes
+from generate_power_of_attorney import register_power_of_attorney_routes
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -961,6 +963,7 @@ register_request_doc_routes(app)
 register_general_letter_routes(app)
 register_warning_letter_routes(app)
 register_training_agreement_routes(app)
+register_power_of_attorney_routes(app)
 
 # ════════════════════════════════════════════════════════════
 # MAIN
