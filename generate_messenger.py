@@ -39,6 +39,14 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
 
 from messenger_images import SCM_LOGO_B64, SCM_WATERMARK_B64
+from template_utils import fade_png_b64
+
+
+_MSG_WM = []
+def _messenger_watermark():
+    if not _MSG_WM:
+        _MSG_WM.append(fade_png_b64(SCM_WATERMARK_B64, SCM_LOGO_B64))
+    return _MSG_WM[0]
 from template_utils import th_pt, th_box, wrap_text
 
 logger = logging.getLogger(__name__)
@@ -499,7 +507,7 @@ def generate_messenger_pdf(data):
 
     # ── Watermark (วาดก่อนสุด อยู่ด้านหลัง) ─────────────────────────────
     try:
-        wm = ImageReader(io.BytesIO(base64.b64decode(SCM_WATERMARK_B64)))
+        wm = ImageReader(io.BytesIO(_messenger_watermark()))   # ความจางตาม WATERMARK_OPACITY (template_utils)
         cv.drawImage(wm, 60, Y(380) - 220, width=460, height=220,
                      preserveAspectRatio=True, mask='auto')
     except Exception as e:

@@ -573,6 +573,116 @@ def resolve_template(entity_key):
     return _ENTITY_TEMPLATE_MAP.get(key, _DEFAULT_TEMPLATE)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ลายน้ำโลโก้ — ค่าเดียวของบริการ PDF (หัวกระดาษทุกบริษัท + ใบแมสเซนเจอร์)
+#   ไฟล์ bg_template_*.pdf ทำลายน้ำจางไว้ราว 18–20% ; ตอนโหลดระบบปรับให้เหลือ WATERMARK_OPACITY (ไฟล์ต้นฉบับไม่ถูกแก้)
+#   ความเข้ม = ความเข้มของสีเข้มสุดในลายน้ำ เทียบกับโลโก้สีเต็มบนหัวกระดาษเดียวกัน (โลโก้ 100% = 1.0)
+#   รายงานการประชุมในเว็บแอปตั้งค่าแยกที่ CT_WATERMARK_OPACITY (MeetingMinutes.js)
+# ══════════════════════════════════════════════════════════════════════
+WATERMARK_OPACITY = 0.12
+_LOGO_INK_FALLBACK = 225   # ความเข้มโลโก้สีเต็มโดยประมาณ — ใช้เมื่อหัวกระดาษไม่มีรูปโลโก้ให้เทียบ (bg_template_group)
+
+
+def _ink(img):
+    """ความเข้มสีเข้มสุดเมื่อวางบนพื้นขาว 0–255 (เปอร์เซ็นไทล์ 99.5 กันจุดรบกวน)"""
+    from PIL import Image, ImageChops
+    rgba = img.convert('RGBA')
+    r, g, b = Image.alpha_composite(Image.new('RGBA', rgba.size, (255, 255, 255, 255)), rgba).convert('RGB').split()
+    hist = ImageChops.darker(ImageChops.darker(r, g), b).histogram()   # ค่าสีต่ำสุดของแต่ละจุด
+    need, seen = sum(hist) * 0.005, 0
+    for v in range(256):   # จากเข้มไปจาง
+        seen += hist[v]
+        if seen > need:
+            return 255 - v
+    return 0
+
+
+def _scale_table(k, invert):
+    """ตารางแปลงค่า 0–255: alpha × k หรือ สีบนพื้นขาว 255 − (255 − c) × k"""
+    if invert:
+        return bytes(max(0, min(255, round(255 - (255 - i) * k))) for i in range(256))
+    return bytes(max(0, min(255, round(i * k))) for i in range(256))
+
+
+def _fade_pdf_image(obj, k):
+    """ปรับความจางของรูปในไฟล์ PDF ตามตัวคูณ k: ดึงสีเข้าหาขาว (RGB/Gray 8 บิต) ; รูปแบบอื่นไม่แตะ
+    ไม่แตะ SMask — บางหัวกระดาษใช้ SMask ร่วมกับโลโก้บนหัวกระดาษ (ปรับแล้วโลโก้จางไปด้วย) ; บนพื้นขาวผลเท่ากัน: 255 − a·k·(255 − c)"""
+    w, h = int(obj['/Width']), int(obj['/Height'])
+    data = obj.get_data()
+    if int(obj.get('/BitsPerComponent', 8)) != 8 or len(data) not in (w * h * 3, w * h):
+        return False
+    obj.set_data(data.translate(_scale_table(k, True)))
+    return True
+
+
+def _drawn_images(page):
+    """รูปที่หน้ากระดาษวาด: [(ชื่อ, กว้าง, สูง, x, y)] จากคำสั่ง 'a 0 0 d e f cm /ImN Do'"""
+    cs = page.get_contents().get_data().decode('latin1')
+    out = []
+    for m in re.finditer(r'([-\d.]+)\s+0\s+0\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+cm\s*(/\w+)\s+Do', cs):
+        out.append((m.group(5), float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))))
+    return out
+
+
+@lru_cache(maxsize=None)
+def _letterhead_bytes(tpl_path, opacity=None):
+    """หัวกระดาษพร้อมลายน้ำตาม WATERMARK_OPACITY (cache ต่อไฟล์) — ปรับไม่ได้ = คืนไฟล์เดิม"""
+    raw = open(tpl_path, 'rb').read()
+    opacity = WATERMARK_OPACITY if opacity is None else opacity
+    try:
+        reader = PdfReader(BytesIO(raw))
+        page = reader.pages[0]
+        xo = page['/Resources'].get('/XObject', {})
+        ph = float(page.mediabox.height)
+        drawn = [d for d in _drawn_images(page) if d[0] in xo and xo[d[0]].get_object().get('/Subtype') == '/Image']
+        # ลายน้ำ = รูปใหญ่สุดที่อยู่กลางหน้า ; โลโก้ = รูปในแถบหัวกระดาษ (บนสุดของหน้า)
+        mids = [d for d in drawn if 0.15 * ph < d[4] + d[2] / 2 < 0.8 * ph]
+        logos = [d for d in drawn if d[4] > 0.85 * ph]
+        if not mids:
+            return raw
+        wm = max(mids, key=lambda d: d[1] * d[2])
+        wm_obj = xo[wm[0]].get_object()
+        ref = max((_ink(xo[d[0]].get_object().decode_as_image()) for d in logos), default=_LOGO_INK_FALLBACK) or _LOGO_INK_FALLBACK
+        cur = _ink(wm_obj.decode_as_image())
+        if not cur:
+            return raw
+        k = opacity * ref / cur
+        if not _fade_pdf_image(wm_obj, k):
+            logger.warning(f'ลายน้ำ {os.path.basename(tpl_path)}: รูปแบบรูปไม่รองรับ — ใช้ไฟล์เดิม')
+            return raw
+        writer = PdfWriter()
+        writer.add_page(page)
+        out = BytesIO()
+        writer.write(out)
+        logger.info(f'ลายน้ำ {os.path.basename(tpl_path)}: {cur / ref:.0%} → {opacity:.0%}')
+        return out.getvalue()
+    except Exception as e:
+        logger.warning(f'ลายน้ำ {os.path.basename(tpl_path)} ปรับไม่ได้ ({e}) — ใช้ไฟล์เดิม')
+        return raw
+
+
+def fade_png_b64(wm_b64, logo_b64, opacity=None):
+    """ลายน้ำ PNG (base64) ปรับให้เหลือ WATERMARK_OPACITY เทียบกับโลโก้สีเต็ม — คืน PNG bytes ; ปรับไม่ได้ = รูปเดิม"""
+    from PIL import Image
+    raw = base64.b64decode(wm_b64)
+    opacity = WATERMARK_OPACITY if opacity is None else opacity
+    try:
+        wm = Image.open(BytesIO(raw)).convert('RGBA')
+        ref = _ink(Image.open(BytesIO(base64.b64decode(logo_b64)))) or _LOGO_INK_FALLBACK
+        cur = _ink(wm)
+        if not cur:
+            return raw
+        k = opacity * ref / cur
+        r, g, b, a = wm.split()
+        wm = Image.merge('RGBA', (r, g, b, a.point(list(_scale_table(k, False)))))
+        out = BytesIO()
+        wm.save(out, 'PNG')
+        return out.getvalue()
+    except Exception as e:
+        logger.warning(f'ลายน้ำแมสเซนเจอร์ปรับไม่ได้ ({e}) — ใช้รูปเดิม')
+        return raw
+
+
 def merge_on_template(content_bytes, entity_key=''):
     """ซ้อนเนื้อหา "ทุกหน้า" บนหัวกระดาษของบริษัท (logo + watermark + แถบที่อยู่)
 
@@ -612,7 +722,7 @@ def merge_on_template(content_bytes, entity_key=''):
 
     writer = PdfWriter()
     for page in PdfReader(BytesIO(content_bytes)).pages:
-        bg = PdfReader(tpl_path).pages[0]
+        bg = PdfReader(BytesIO(_letterhead_bytes(tpl_path))).pages[0]   # ลายน้ำตาม WATERMARK_OPACITY
         content_fonts = page.get('/Resources', {}).get('/Font', {})
         for key in list(content_fonts.keys()):
             try:
