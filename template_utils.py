@@ -253,6 +253,17 @@ _TOKEN_RE = re.compile(r'(<[^>]+>|&[#\w]+;)')
 _TH_ZERO_WIDTH = frozenset('ัิีึืฺุู็่้๊๋์ํ๎')
 
 
+# ── คำนำหน้าชื่อติดกับชื่อ: "นาย สมชาย" → "นายสมชาย" (ผู้ใช้สั่ง 2026-11-25 — ทุกเอกสาร) ──
+#   หน้าคำนำหน้าต้องเป็นขอบคำ หรือคำเชื่อม (ส่วน / และ / โดย / ให้ …) — กันคำอย่าง "เจ้านาย ของ" "ขุนนาง ไทย" ; ตามด้วยพยัญชนะไทยเท่านั้น
+_TITLE_BEFORE = ['ส่วน', 'และ', 'โดย', 'กับ', 'ให้', 'ของ', 'แก่', 'ต่อ', 'จาก', 'คือ', 'ได้แก่', 'ราย', 'ท่าน', 'ซึ่ง']
+_TIGHT_TITLE = re.compile(r'(?:^|(?<=[\s(>"\'\u201c])|%s)(นางสาว|นาง|นาย|ดร\.|น\.ส\.)[ \u00a0]+(?=[\u0e01-\u0e2e])'
+                          % '|'.join('(?<=%s)' % w for w in _TITLE_BEFORE))
+
+
+def tight_titles(text):
+    return _TIGHT_TITLE.sub(r'\1', str(text or ''))
+
+
 def justify_css(selectors):
     """CSS ของบล็อกที่จัดชิดขอบสองด้าน — selectors เช่น '.para' หรือ 'p, .cl, .sub'"""
     if not JUSTIFY:
@@ -304,7 +315,7 @@ def justify_html(html):
         elif part.startswith('&') and part.endswith(';'):
             out.append(part)
         else:
-            j = _justify_chunk(part, breakable=not keep)
+            j = _justify_chunk(tight_titles(part), breakable=not keep)
             if j is None:
                 return html
             out.append(j)
@@ -506,7 +517,7 @@ def build_css(fonts=None, doc_number=''):
 def html_to_pdf(html):
     """แปลง HTML string → PDF bytes ด้วย WeasyPrint"""
     from weasyprint import HTML
-    return HTML(string=html).write_pdf()
+    return HTML(string=tight_titles(html)).write_pdf()   # ข้อความนอกย่อหน้าที่จัดชิดขอบ (ตาราง / ช่องลงนาม) — คำนำหน้าติดชื่อ
 
 
 def build_html(css, body_html):

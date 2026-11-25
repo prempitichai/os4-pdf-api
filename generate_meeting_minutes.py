@@ -20,7 +20,7 @@ import re
 from io import BytesIO
 from flask import request, jsonify
 from pypdf import PdfReader
-from template_utils import (font_face_css, justify_css, justify_html, page_head_css, merge_on_template,
+from template_utils import (font_face_css, justify_css, justify_html, page_head_css, merge_on_template, tight_titles, html_to_pdf, thai_breaks,
                             BODY_PT, TITLE_PT, SMALL_PT, LINE_PT)
 
 logger = logging.getLogger(__name__)
@@ -37,9 +37,8 @@ _GLUE = [
     re.compile(r'((?:%s)) +(?=(?:พ\.ศ\.|\d{4}))' % _MONTHS),                       # พฤศจิกายน พ.ศ.
     re.compile(r'(พ\.ศ\.|ค\.ศ\.) *(?=\d)'),                                         # พ.ศ. 2569
     re.compile(r'(ครั้งที่|วาระที่|ข้อ|มาตรา|เลขที่|ร้อยละ|หุ้นละ|ลำดับที่|เวลา|วันที่|จำนวน) +(?=\d)'),
-    re.compile(r'(นางสาว|นาง|นาย|คุณ|ดร\.) +(?=[ก-๙A-Za-z])'),                      # คำนำหน้ากับชื่อ
 ]
-_NAME = re.compile(r'((?:นางสาว|นาง|นาย|คุณ|ดร\.) )(\S{1,30})(?: (\S{1,30}))?')
+_NAME = re.compile(r'((?:นางสาว|นาง|นาย|ดร\.))(\S{1,30})(?: (\S{1,30}))?')   # คำนำหน้าติดชื่อแล้ว (tight_titles)
 _COMPANY = re.compile(r'(บริษัท) ((?:\S{1,30} ){0,6}?)(จำกัด(?: \(มหาชน\))?)')
 _TOKEN = re.compile(r'(<[^>]+>|&[#\w]+;)')
 _NB_RUN = re.compile('[^\\s\u00a0]+(?:\u00a0[^\\s\u00a0]+)+')
@@ -50,8 +49,26 @@ def _nw(s):
     return '<span class="nw">%s</span>' % s
 
 
+def _glue_span(run):
+    """คำที่ติดกาว NBSP (เช่น "…ทุนจำนวน 440,000 หุ้น") → ห่อ .nw เฉพาะคำไทยคำสุดท้ายก่อนกาว / คำแรกหลังกาว
+    ข้อความไทยไม่มีช่องว่างระหว่างคำ — ห่อทั้งก้อนทำให้บรรทัดก่อนหน้าขาดเนื้อแล้วถูกกระจายตัวอักษร (ผู้ใช้แจ้ง 2026-11-25)"""
+    parts = run.split(NB)
+    head, tail = parts[0], parts[-1]
+    pre = post = ''
+    bp = thai_breaks(head) if any('\u0e01' <= c <= '\u0e4e' for c in head) else None
+    if bp:
+        cut = max(bp)
+        pre, parts[0] = head[:cut], head[cut:]
+    bp = thai_breaks(tail) if len(parts) > 1 and any('\u0e01' <= c <= '\u0e4e' for c in tail) else None
+    if bp:
+        cut = min(bp)
+        parts[-1], post = tail[:cut], tail[cut:]
+    return pre + _nw(' '.join(parts)) + post
+
+
 def _smart_text(t):
     """ข้อความล้วน (escape แล้ว) → ติดกาว NBSP + ห่อชื่อด้วย .nw (ขึ้นบรรทัดใหม่ได้เฉพาะระหว่างคำของชื่อ)"""
+    t = tight_titles(t)
     for rx in _GLUE:
         t = rx.sub(lambda m: m.group(1) + NB, t)
     t = _COMPANY.sub(lambda m: _nw(m.group(1)) + ' ' + ' '.join(_nw(w) for w in m.group(2).split()) + (' ' if m.group(2) else '') + _nw(m.group(3)), t)
@@ -62,7 +79,7 @@ def _smart_text(t):
         if p.startswith('<span class="nw">'):
             parts[i] = p.replace(NB, ' ')
         else:
-            parts[i] = _NB_RUN.sub(lambda m: _nw(m.group(0).replace(NB, ' ')), p)
+            parts[i] = _NB_RUN.sub(lambda m: _glue_span(m.group(0)), p)
     return ''.join(parts)
 
 
@@ -138,8 +155,7 @@ def build_minutes_html(html, doc_number=''):
 
 
 def render_minutes(html, entity_key='', doc_number=''):
-    from weasyprint import HTML
-    pdf = HTML(string=build_minutes_html(html, doc_number)).write_pdf()   # ฟอนต์ฝัง data: ใน CSS ; เนื้อหาไม่มี URL ภายนอก (build_minutes_html)
+    pdf = html_to_pdf(build_minutes_html(html, doc_number))   # ฟอนต์ฝัง data: ใน CSS ; เนื้อหาไม่มี URL ภายนอก (build_minutes_html)
     out = merge_on_template(pdf, entity_key)
     return out, len(PdfReader(BytesIO(out)).pages)
 
