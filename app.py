@@ -65,6 +65,7 @@ from generate_warning_letter import register_warning_letter_routes
 from generate_training_agreement import register_training_agreement_routes
 from generate_power_of_attorney import register_power_of_attorney_routes
 from letterhead_overlay import register_letterhead_routes
+from generate_meeting_minutes import register_meeting_minutes_routes
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -966,6 +967,7 @@ register_warning_letter_routes(app)
 register_training_agreement_routes(app)
 register_power_of_attorney_routes(app)
 register_letterhead_routes(app)
+register_meeting_minutes_routes(app)
 
 # ════════════════════════════════════════════════════════════
 # MAIN
