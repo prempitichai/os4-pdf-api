@@ -248,9 +248,11 @@ def _company_header(cv, data, y, color):
     adr = _co(data, 'address')
     if adr != '-':
         _tx(cv, pw/2, y, adr, F, S12, CL, 'center'); y -= 10
-    inf = (f"โทร. {_co(data, 'phone')}  "
-           f"แฟกซ์: {_co(data, 'fax')}  "
-           f"เลขประจำตัวผู้เสียภาษี: {_co(data, 'taxId')}")
+    # ช่องที่ไม่มีข้อมูล (เช่น แฟกซ์) ไม่พิมพ์ — เดิมพิมพ์ "แฟกซ์: -"
+    inf = '  '.join(x for x in (
+        f"โทร. {_co(data, 'phone')}" if _co(data, 'phone') != '-' else '',
+        f"แฟกซ์: {_co(data, 'fax')}" if _co(data, 'fax') != '-' else '',
+        f"เลขประจำตัวผู้เสียภาษี: {_co(data, 'taxId')}" if _co(data, 'taxId') != '-' else '') if x)
     _tx(cv, pw/2, y, inf, F, S12, CL, 'center')
     return y
 
