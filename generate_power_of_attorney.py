@@ -9,7 +9,7 @@ POST /generate_power_of_attorney — ข้อมูลจาก GAS (_poaPayloa
   - ข้ออำนาจแต่ละข้อไม่ถูกตัดกลางข้อ (ข้อยาวเกินหนึ่งหน้าจึงแบ่งตามบรรทัด orphans/widows 3)
   - ข้อสุดท้าย + ข้อความปิดท้าย + ระยะเวลา + อากร + ช่องลงนาม อยู่หน้าเดียวกันเสมอ (ไม่มีหน้าที่มีแต่ลายเซ็น)
   - หัวกระดาษบริษัท / ลายน้ำทุกหน้า (merge_multi_page) · เลขที่ + หน้า x / y ทุกหน้า (build_css)
-ช่องลงนาม = แบบหนังสือฝึกอบรม / ตักเตือน (hr_doc_layout.signatures) — กรรมการ 2 คอลัมน์ + ที่ประทับตรา / ผู้รับมอบอำนาจ / พยาน
+ช่องลงนาม = class เดียวกับหนังสือฝึกอบรม / ตักเตือน — ตรา+อากร / ผู้มอบ / ผู้รับมอบ / พยาน คนละแถว (_sign_table)
 ไม่มีภาพลายเซ็น (ลงนามด้วยมือ) ; stampKey = ตราบริษัทแทนวงกลม "ประทับตรา"
 """
 
@@ -30,7 +30,10 @@ _EXTRA_CSS = """
   .tail     { page-break-inside: avoid; }
   .duty     { display: inline-block; vertical-align: middle; width: 30mm; min-height: 18mm; border: 0.8pt dashed #555; text-align: center;
               font-size: 11pt; line-height: 1.3; padding: 2.5mm 1mm; margin: 0 0 0 4mm; box-sizing: border-box; }
-  .sign .seal { display: inline-block; vertical-align: middle; }
+  .poa-seal { display: flex; justify-content: center; align-items: center; gap: 14mm; }
+  .poa-seal .seal { margin: 0; }
+  tr.poa-seal-row td { padding-top: 3mm; }
+  .poa-seal .duty { margin: 0; }
   .clear    { clear: both; }
 """
 
@@ -52,23 +55,18 @@ def _cell(c, colspan=1):
 
 
 def _sign_table(grantors, grantees, witnesses, seal_html):
-    """ช่องลงนาม 2 คอลัมน์ (class เดียวกับ hr_doc_layout.signatures) — ตราบริษัท / อากร วางในช่องว่างแรกถัดจากผู้มอบอำนาจ
-    (ไม่มีแถวตราแยก → ทั้งชุดสั้นลง ข้อน้อยก็จบหน้าเดียวได้)"""
-    seal_td = '<td style="text-align:center;vertical-align:middle">%s</td>' % seal_html
-    rows, placed = [], False
-    people = grantors + grantees
-    for i in range(0, len(people), 2):
-        pair = people[i:i + 2]
-        if len(pair) == 2:
-            rows.append(_cell(pair[0]) + _cell(pair[1]))
-        elif not placed:
-            rows.append(_cell(pair[0]) + seal_td); placed = True
-        else:
-            rows.append(_cell(pair[0], 2))
-    if not placed:
-        rows.insert(1, seal_td.replace('<td ', '<td colspan="2" ', 1))
-    rows.append(_cell(witnesses[0]) + _cell(witnesses[1]))
-    return '<table class="sign">' + ''.join('<tr>%s</tr>' % r for r in rows) + '</table>'
+    """ช่องลงนาม (ผู้ใช้กำหนด 2026-11-24) — class เดียวกับ hr_doc_layout.signatures
+       แถว 1 ตราบริษัท + อากรแสตมป์ · แถว 2 ผู้มอบ (คนเดียว = กลาง, สองคน = คู่) · แถว 3 ผู้รับมอบ (กลาง) · แถว 4 พยานคู่กัน
+       คนที่เหลือเศษจากการจับคู่อยู่กลางแถว"""
+    def rows_of(cells):
+        out = []
+        for i in range(0, len(cells), 2):
+            pair = cells[i:i + 2]
+            out.append(_cell(pair[0]) + _cell(pair[1]) if len(pair) == 2 else _cell(pair[0], 2))
+        return out
+    rows = ['<td colspan="2"><div class="poa-seal">%s</div></td>' % seal_html]
+    rows += rows_of(grantors) + rows_of(grantees) + rows_of(witnesses)
+    return '<table class="sign">' + ''.join('<tr%s>%s</tr>' % (' class="poa-seal-row"' if i == 0 else '', r) for i, r in enumerate(rows)) + '</table>'
 
 
 def _build_poa_html(d):
@@ -85,13 +83,19 @@ def _build_poa_html(d):
             s += ' ผู้ถือบัตรประจำตัวประชาชนเลขที่ ' + _esc(x.get('idCard'))
         if str(x.get('position', '')).strip():
             s += ' ตำแหน่ง ' + _esc(x.get('position'))
+        if str(x.get('address', '')).strip():
+            s += ' ที่อยู่ ' + _esc(x.get('address'))
         return s
+
+    # เลขบัตรผู้มอบ (ไม่บังคับ — หนังสือมอบอำนาจขอคืน BG ใช้) เรียงตามลำดับผู้มอบ
+    gids = [str(v or '').strip() for v in (d.get('grantorIds') or [])]
+    gr_txt = [_esc(n) + ((' ผู้ถือบัตรประจำตัวประชาชนเลขที่ ' + _esc(gids[i])) if i < len(gids) and gids[i] else '') for i, n in enumerate(grantors)]
 
     sep = d.get('granteeMode') == 'separate' and len(grantees) > 1
     to_txt = _join([person(x) for x in grantees], 'หรือ' if sep else 'และ') + (' คนใดคนหนึ่ง' if sep else (' ร่วมกัน' if len(grantees) > 1 else ''))
     addr = g('companyAddress')
     intro = ('โดยหนังสือฉบับนี้ ข้าพเจ้า %s (&ldquo;บริษัท&rdquo;) โดย %s กรรมการผู้มีอำนาจลงนาม%s ขอมอบอำนาจให้ %s มีอำนาจในการกระทำหรือดำเนินการดังต่อไปนี้'
-             % (nowrap(_esc(co)), _esc(_join(grantors, g('grantorJoin') or 'และ')), (' สำนักงานใหญ่ตั้งอยู่เลขที่ ' + nowrap(_esc(addr))) if addr else '', to_txt))
+             % (nowrap(_esc(co)), _join(gr_txt, g('grantorJoin') or 'และ'), (' สำนักงานใหญ่ตั้งอยู่' + ('' if addr.startswith('เลขที่') else 'เลขที่') + ' ' + nowrap(_esc(addr))) if addr else '', to_txt))
     if d.get('untilRevoked'):
         period = 'หนังสือมอบอำนาจฉบับนี้ให้มีผลใช้บังคับตั้งแต่วันที่ %s จนกว่าบริษัทจะเพิกถอนเป็นหนังสือ' % _esc(g('periodFrom') or g('docDate'))
     elif g('periodFrom') or g('periodTo'):
